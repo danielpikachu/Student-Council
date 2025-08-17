@@ -15,28 +15,31 @@ from pathlib import Path
 DATA_FILE = "app_data.json"
 
 def load_data():
-    """Load data from JSON file with proper column initialization"""
+    """Load data from JSON file with proper column initialization and missing key handling"""
     if Path(DATA_FILE).exists():
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
         
         # Restore data with proper column checks
-        st.session_state.scheduled_events = pd.DataFrame(data["scheduled_events"])
+        st.session_state.scheduled_events = pd.DataFrame(data.get("scheduled_events", []))
         required_columns = ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds']
         for col in required_columns:
             if col not in st.session_state.scheduled_events.columns:
                 st.session_state.scheduled_events[col] = pd.Series(dtype='float64' if col != 'Event Name' else 'object')
 
-        st.session_state.occasional_events = pd.DataFrame(data["occasional_events"])
-        st.session_state.credit_data = pd.DataFrame(data["credit_data"])
-        st.session_state.reward_data = pd.DataFrame(data["reward_data"])
-        st.session_state.calendar_events = data["calendar_events"]
-        st.session_state.announcements = data["announcements"]
-        st.session_state.money_data = pd.DataFrame(data["money_data"])
+        st.session_state.occasional_events = pd.DataFrame(data.get("occasional_events", []))
+        st.session_state.credit_data = pd.DataFrame(data.get("credit_data", []))
+        st.session_state.reward_data = pd.DataFrame(data.get("reward_data", []))
+        st.session_state.calendar_events = data.get("calendar_events", {})
+        st.session_state.announcements = data.get("announcements", [])
+        st.session_state.money_data = pd.DataFrame(data.get("money_data", []))
         
-        # Load attendance data
-        st.session_state.attendance = pd.DataFrame(data["attendance"])
-        st.session_state.meeting_names = data.get("meeting_names", [])
+        # Handle potentially missing attendance data with default values
+        st.session_state.attendance = pd.DataFrame(data.get("attendance", {
+            'Name': ['Alice', 'Bob', 'Charlie'],
+            'Meeting 1': [True, False, True]
+        }))
+        st.session_state.meeting_names = data.get("meeting_names", ["Meeting 1"])
 
     else:
         safe_init_data()
