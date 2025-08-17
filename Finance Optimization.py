@@ -77,7 +77,7 @@ def safe_init_data():
         st.session_state.is_admin = False  # Track admin status
 
 # Initialize data when app starts
-setup_init_data()
+safe_init_data()
 
 # ------------------------------
 # Admin Authentication
@@ -461,4 +461,5 @@ with tab4:
         if not st.session_state.money_data.empty:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
+
             st.info("Money transfer records will be displayed here if available. Contact an admin to load data.")
