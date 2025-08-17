@@ -831,4 +831,4 @@ with tab7:
         if not st.session_state.money_data.empty:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
-            st.info("Money transfer records will be displayed here if available."
+            st.info("Money transfer records will be displayed here if available.")
