@@ -10,18 +10,24 @@ import json
 from pathlib import Path
 
 # ------------------------------
-# Persistent Data Storage (Fixes Refresh Reset Issue)
+# Persistent Data Storage
 # ------------------------------
 DATA_FILE = "app_data.json"
 
 def load_data():
-    """Load data from JSON file (persists between app restarts)"""
+    """Load data from JSON file with proper column initialization"""
     if Path(DATA_FILE).exists():
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
         
-        # Restore data to session state
+        # Restore data with proper column checks
         st.session_state.scheduled_events = pd.DataFrame(data["scheduled_events"])
+        # Ensure required columns exist
+        required_columns = ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds']
+        for col in required_columns:
+            if col not in st.session_state.scheduled_events.columns:
+                st.session_state.scheduled_events[col] = pd.Series(dtype='float64' if col != 'Event Name' else 'object')
+
         st.session_state.occasional_events = pd.DataFrame(data["occasional_events"])
         st.session_state.credit_data = pd.DataFrame(data["credit_data"])
         st.session_state.reward_data = pd.DataFrame(data["reward_data"])
@@ -29,13 +35,11 @@ def load_data():
         st.session_state.announcements = data["announcements"]
         st.session_state.money_data = pd.DataFrame(data["money_data"])
     else:
-        # Initialize with default data if file doesn't exist
         safe_init_data()
-        save_data()  # Create the file
+        save_data()
 
 def save_data():
     """Save current session state to JSON file"""
-    # Convert DataFrames to dicts for JSON serialization
     data = {
         "scheduled_events": st.session_state.scheduled_events.to_dict(orient="records"),
         "occasional_events": st.session_state.occasional_events.to_dict(orient="records"),
@@ -50,55 +54,40 @@ def save_data():
         json.dump(data, f, indent=2)
 
 def safe_init_data():
-    """Initialize default data if no saved data exists"""
-    if 'scheduled_events' not in st.session_state:
-        st.session_state.scheduled_events = pd.DataFrame(columns=[
-            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
-        ])
+    """Initialize default data with guaranteed columns"""
+    # Scheduled events with all required columns
+    st.session_state.scheduled_events = pd.DataFrame(columns=[
+        'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
+    ])
 
-    if 'occasional_events' not in st.session_state:
-        st.session_state.occasional_events = pd.DataFrame(columns=[
-            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
-            'Preparation Time', 'Rating'
-        ])
+    st.session_state.occasional_events = pd.DataFrame(columns=[
+        'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+        'Preparation Time', 'Rating'
+    ])
 
-    if 'credit_data' not in st.session_state:
-        st.session_state.credit_data = pd.DataFrame({
-            'Name': ['Alice', 'Bob', 'Charlie'],
-            'Total_Credits': [200, 150, 300],
-            'RedeemedCredits': [50, 0, 100]
-        })
+    st.session_state.credit_data = pd.DataFrame({
+        'Name': ['Alice', 'Bob', 'Charlie'],
+        'Total_Credits': [200, 150, 300],
+        'RedeemedCredits': [50, 0, 100]
+    })
 
-    if 'reward_data' not in st.session_state:
-        st.session_state.reward_data = pd.DataFrame({
-            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
-            'Cost': [50, 30, 80],
-            'Stock': [10, 20, 5]
-        })
+    st.session_state.reward_data = pd.DataFrame({
+        'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+        'Cost': [50, 30, 80],
+        'Stock': [10, 20, 5]
+    })
 
-    if 'wheel_prizes' not in st.session_state:
-        st.session_state.wheel_prizes = ["50 Credits", "Bubble Tea", "Chips", "100 Creditsits", "Café Coupon", "Free Prom Ticket"]
-        st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
+    st.session_state.wheel_prizes = ["50 Credits", "Bubble Tea", "Chips", "100 Credits", "Café Coupon", "Free Prom Ticket"]
+    st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
 
-    if 'money_data' not in st.session_state:
-        st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
+    st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
+    st.session_state.allocation_count = 0
+    st.session_state.is_admin = False
+    st.session_state.spinning = False
+    st.session_state.calendar_events = {}
+    st.session_state.announcements = []
 
-    if 'allocation_count' not in st.session_state:
-        st.session_state.allocation_count = 0
-
-    if 'is_admin' not in st.session_state:
-        st.session_state.is_admin = False
-
-    if 'spinning' not in st.session_state:
-        st.session_state.spinning = False
-
-    if 'calendar_events' not in st.session_state:
-        st.session_state.calendar_events = {}  # {"YYYY-MM-DD": "Plan text"}
-
-    if 'announcements' not in st.session_state:
-        st.session_state.announcements = []  # [{"text": "...", "time": "ISO string"}]
-
-# Load persistent data on app start
+# Load persistent data
 load_data()
 
 # ------------------------------
@@ -119,28 +108,22 @@ def admin_login():
         st.info("Accessing as regular user")
 
 # ------------------------------
-# Calendar Helper Functions
+# Calendar Helpers
 # ------------------------------
 def get_month_grid():
-    """Generate a grid of dates for the current month (including empty days)"""
     today = date.today()
     year, month = today.year, today.month
     
-    # Get first and last day of the month
     first_day = date(year, month, 1)
     last_day = (date(year, month + 1, 1) - timedelta(days=1)) if month < 12 else date(year, 12, 31)
+    first_day_weekday = first_day.isoweekday() % 7  # 0=Monday
     
-    # Get day of week for first day (0=Monday, 6=Sunday in ISO week)
-    first_day_weekday = first_day.isoweekday() % 7  # Convert to 0=Monday, 6=Sunday
-    
-    # Calculate number of rows needed (weeks)
     total_days = (last_day - first_day).days + 1
     total_slots = first_day_weekday + total_days
-    rows = (total_slots + 6) // 7  # Round up to nearest week
+    rows = (total_slots + 6) // 7
     
-    # Create grid: list of lists (each sublist = 1 week)
     grid = []
-    current_date = first_day - timedelta(days=first_day_weekday)  # Start from first slot
+    current_date = first_day - timedelta(days=first_day_weekday)
     
     for _ in range(rows):
         week = []
@@ -152,16 +135,16 @@ def get_month_grid():
     return grid, month, year
 
 def format_date_for_display(dt):
-    """Format date as "DD" (e.g., "05" for 5th)"""
     return dt.strftime("%d")
 
 # ------------------------------
 # Other Helpers
 # ------------------------------
 def update_leaderboard():
-    st.session_state.credit_data = st.session_state.credit_data.sort_values(
-        by='Total_Credits', ascending=False
-    ).reset_index(drop=True)
+    if not st.session_state.credit_data.empty:
+        st.session_state.credit_data = st.session_state.credit_data.sort_values(
+            by='Total_Credits', ascending=False
+        ).reset_index(drop=True)
 
 def draw_wheel(rotation_angle=0):
     n = len(st.session_state.wheel_prizes)
@@ -196,7 +179,7 @@ def draw_wheel(rotation_angle=0):
 st.set_page_config(page_title="Student Council Manager", layout="wide")
 st.title("Student Council Manager")
 
-# Custom CSS for calendar grid
+# Custom CSS
 st.markdown("""
 <style>
 .calendar-day {
@@ -207,10 +190,10 @@ st.markdown("""
     margin: 2px;
 }
 .today {
-    background-color: #e3f2fd;  /* Light blue for today */
+    background-color: #e3f2fd;
 }
 .other-month {
-    background-color: #f5f5f5;  /* Gray for days from other months */
+    background-color: #f5f5f5;
     color: #9e9e9e;
 }
 .day-header {
@@ -230,7 +213,6 @@ with st.sidebar:
     admin_login()
     st.divider()
     
-    # Admin-only data status
     if st.session_state.is_admin:
         st.subheader("Data File Status")
         st.success("✅ Data automatically saved")
@@ -239,7 +221,7 @@ with st.sidebar:
         else:
             st.warning("Data file will be created on first save")
 
-# Tabs with new order
+# Tabs
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "Calendar", 
     "Announcements",
@@ -250,45 +232,41 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
 ])
 
 # ------------------------------
-# Tab 1: Grid-Style Calendar (1st tab)
+# Tab 1: Calendar
 # ------------------------------
 with tab1:
     today = date.today()
     grid, month, year = get_month_grid()
     st.subheader(f"{datetime(year, month, 1).strftime('%B %Y')}")
     
-    # Day headers (Monday to Sunday)
+    # Day headers
     headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     header_cols = st.columns(7)
     for col, header in zip(header_cols, headers):
         col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
     
-    # Display calendar grid
+    # Calendar grid
     for week in grid:
         day_cols = st.columns(7)
         for col, dt in zip(day_cols, week):
-            # Format date
             date_str = dt.strftime("%Y-%m-%d")
             day_display = format_date_for_display(dt)
             
-            # Determine CSS class
             css_class = "calendar-day "
             if dt.month != month:
-                css_class += "other-month "  # Days from other months
+                css_class += "other-month "
             elif dt == today:
-                css_class += "today "  # Highlight today
+                css_class += "today "
             
-            # Get plan text if exists
             plan_text = st.session_state.calendar_events.get(date_str, "")
             plan_html = f'<div class="plan-text">{plan_text}</div>' if plan_text else ""
             
-            # Display day square
             col.markdown(
                 f'<div class="{css_class}"><strong>{day_display}</strong>{plan_html}</div>',
                 unsafe_allow_html=True
             )
     
-    # Admin-only: Add/edit plans
+    # Admin controls
     if st.session_state.is_admin:
         with st.expander("Add/Edit Plan (Admin Only)"):
             plan_date = st.date_input("Select Date", today)
@@ -296,34 +274,30 @@ with tab1:
             current_plan = st.session_state.calendar_events.get(date_str, "")
             plan_text = st.text_input("Plan (max 10 words)", current_plan)
             
-            # Validate word count
             word_count = len(plan_text.split())
             if word_count > 10:
                 st.warning(f"Plan is too long ({word_count} words). Max 10 words.")
             
-            # Buttons
             col_save, col_delete = st.columns(2)
             with col_save:
                 if st.button("Save Plan") and word_count <= 10:
                     st.session_state.calendar_events[date_str] = plan_text
-                    save_data()  # Save to file
+                    save_data()
                     st.success(f"Saved plan for {plan_date.strftime('%b %d')}!")
             
             with col_delete:
                 if st.button("Delete Plan") and date_str in st.session_state.calendar_events:
                     del st.session_state.calendar_events[date_str]
-                    save_data()  # Save to file
+                    save_data()
                     st.success(f"Deleted plan for {plan_date.strftime('%b %d')}!")
 
 # ------------------------------
-# Tab 2: Announcements (2nd tab)
+# Tab 2: Announcements
 # ------------------------------
 with tab2:
     st.subheader("Announcements")
     
-    # Display announcements (newest first)
     if st.session_state.announcements:
-        # Sort by timestamp (newest first)
         sorted_announcements = sorted(
             st.session_state.announcements, 
             key=lambda x: x["time"], 
@@ -335,29 +309,27 @@ with tab2:
             if idx < len(sorted_announcements) - 1:
                 st.divider()
                 
-            # Admin-only delete button
             if st.session_state.is_admin:
                 if st.button(f"Delete this announcement", key=f"del_{idx}"):
                     st.session_state.announcements.pop(idx)
-                    save_data()  # Save to file
+                    save_data()
                     st.success("Announcement deleted. Refresh to see changes.")
     else:
         st.info("No announcements yet.")
     
-    # Admin-only: Add new announcement
     if st.session_state.is_admin:
         with st.expander("Add New Announcement (Admin Only)"):
             new_announcement = st.text_area("New Announcement", "Next meeting: Friday 3 PM")
             if st.button("Post Announcement"):
                 st.session_state.announcements.append({
                     "text": new_announcement,
-                    "time": datetime.now().isoformat()  # ISO format for easy parsing
+                    "time": datetime.now().isoformat()
                 })
-                save_data()  # Save to file
+                save_data()
                 st.success("Announcement posted!")
 
 # ------------------------------
-# Tab 3: Financial Optimizing
+# Tab 3: Financial Optimizing (Fixed KeyError)
 # ------------------------------
 with tab3:
     st.subheader("Financial Progress")
@@ -392,19 +364,26 @@ with tab3:
                 st.session_state.scheduled_events = pd.concat(
                     [st.session_state.scheduled_events, new_event], ignore_index=True
                 )
-                save_data()  # Save to file
+                save_data()
                 st.success("Event added!")
 
+        # Safeguard for empty DataFrame
         if not st.session_state.scheduled_events.empty:
             event_to_delete = st.selectbox("Select Event to Delete", st.session_state.scheduled_events['Event Name'])
             if st.button("Delete Scheduled Event"):
                 st.session_state.scheduled_events = st.session_state.scheduled_events[
                     st.session_state.scheduled_events['Event Name'] != event_to_delete
                 ].reset_index(drop=True)
-                save_data()  # Save to file
+                save_data()
                 st.success("Event deleted!")
+        else:
+            st.info("No scheduled events to delete. Add an event first.")
 
-        total_scheduled = st.session_state.scheduled_events['Total Funds'].sum()
+        # Fixed KeyError: Check if column exists before summing
+        if 'Total Funds' in st.session_state.scheduled_events.columns:
+            total_scheduled = st.session_state.scheduled_events['Total Funds'].sum()
+        else:
+            total_scheduled = 0.0
         st.metric("Aggregate Funds (Scheduled)", f"${total_scheduled:.2f}")
 
     with col_right:
@@ -431,7 +410,7 @@ with tab3:
                 st.session_state.occasional_events = pd.concat(
                     [st.session_state.occasional_events, new_event], ignore_index=True
                 )
-                save_data()  # Save to file
+                save_data()
                 st.success("Event added!")
 
         if not st.session_state.occasional_events.empty:
@@ -440,15 +419,17 @@ with tab3:
                 st.session_state.occasional_events = st.session_state.occasional_events[
                     st.session_state.occasional_events['Event Name'] != event_to_delete
                 ].reset_index(drop=True)
-                save_data()  # Save to file
+                save_data()
                 st.success("Event deleted!")
+        else:
+            st.info("No occasional events to delete. Add an event first.")
 
         if not st.session_state.occasional_events.empty:
             if st.button("Sort by Rating (Descending)"):
                 st.session_state.occasional_events = st.session_state.occasional_events.sort_values(
                     by='Rating', ascending=False
                 ).reset_index(drop=True)
-                save_data()  # Save to file
+                save_data()
                 st.success("Sorted!")
 
         if not st.session_state.occasional_events.empty:
@@ -477,12 +458,15 @@ with tab3:
                 st.session_state.allocation_count += 1
                 col_name = f'Allocated Times (Target: ${total_target})'
                 st.session_state.occasional_events[col_name] = allocated_times
-                save_data()  # Save to file
+                save_data()
                 st.success("Optimization complete!")
 
-        if not st.session_state.occasional_events.empty:
+        # Safeguard for empty DataFrame
+        if not st.session_state.occasional_events.empty and 'Total Funds Raised' in st.session_state.occasional_events.columns and 'Cost' in st.session_state.occasional_events.columns:
             total_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum()
-            st.metric("Aggregate Funds (Occasional)", f"${total_occasional:.2f}")
+        else:
+            total_occasional = 0.0
+        st.metric("Aggregate Funds (Occasional)", f"${total_occasional:.2f}")
 
 # ------------------------------
 # Tab 4: Credit & Reward System
@@ -522,7 +506,7 @@ with tab4:
                         st.session_state.credit_data = pd.concat(
                             [st.session_state.credit_data, new_student], ignore_index=True
                         )
-                    save_data()  # Save to file
+                    save_data()
                     st.success(f"Added {credits} credits to {student_name}!")
 
     with col_rewards:
@@ -531,10 +515,10 @@ with tab4:
 
         if st.session_state.is_admin:
             with st.expander("Redeem Reward (Admin Only)"):
-                student_name = st.selectbox("Select Student", st.session_state.credit_data['Name'])
-                reward_name = st.selectbox("Select Reward", st.session_state.reward_data['Reward'])
+                student_name = st.selectbox("Select Student", st.session_state.credit_data['Name'] if not st.session_state.credit_data.empty else [])
+                reward_name = st.selectbox("Select Reward", st.session_state.reward_data['Reward'] if not st.session_state.reward_data.empty else [])
                 
-                if st.button("Redeem"):
+                if st.button("Redeem") and student_name and reward_name:
                     student = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_name].iloc[0]
                     reward = st.session_state.reward_data[st.session_state.reward_data['Reward'] == reward_name].iloc[0]
 
@@ -546,7 +530,7 @@ with tab4:
                         st.session_state.reward_data.loc[
                             st.session_state.reward_data['Reward'] == reward_name, 'Stock'
                         ] -= 1
-                        save_data()  # Save to file
+                        save_data()
                         st.success(f"{student_name} redeemed {reward_name}!")
                     else:
                         st.error("Not enough credits or reward out of stock!")
@@ -556,29 +540,32 @@ with tab4:
         col_wheel, col_result = st.columns(2)
         
         with col_wheel:
-            student_name = st.selectbox("Select Student for Lucky Draw", st.session_state.credit_data['Name'])
-            if st.button("Spin Wheel") and not st.session_state.spinning:
-                st.session_state.spinning = True
-                student = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_name].iloc[0]
-                
-                if student['Total_Credits'] < 50:
-                    st.error("Need at least 50 credits to spin!")
-                    st.session_state.spinning = False
-                else:
-                    st.session_state.credit_data.loc[
-                        st.session_state.credit_data['Name'] == student_name, 'Total_Credits'
-                    ] -= 50
-
-                    st.write("Spinning...")
-                    time.sleep(1)
+            if not st.session_state.credit_data.empty:
+                student_name = st.selectbox("Select Student for Lucky Draw", st.session_state.credit_data['Name'])
+                if st.button("Spin Wheel") and not st.session_state.spinning:
+                    st.session_state.spinning = True
+                    student = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_name].iloc[0]
                     
-                    prize_idx = np.random.randint(0, len(st.session_state.wheel_prizes))
-                    final_rotation = 3 * 360 + (prize_idx * (360 / len(st.session_state.wheel_prizes)))
-                    fig = draw_wheel(np.deg2rad(final_rotation))
-                    col_wheel.pyplot(fig)
-                    st.session_state.winner = st.session_state.wheel_prizes[prize_idx]
-                    save_data()  # Save to file
-                    st.session_state.spinning = False
+                    if student['Total_Credits'] < 50:
+                        st.error("Need at least 50 credits to spin!")
+                        st.session_state.spinning = False
+                    else:
+                        st.session_state.credit_data.loc[
+                            st.session_state.credit_data['Name'] == student_name, 'Total_Credits'
+                        ] -= 50
+
+                        st.write("Spinning...")
+                        time.sleep(1)
+                        
+                        prize_idx = np.random.randint(0, len(st.session_state.wheel_prizes))
+                        final_rotation = 3 * 360 + (prize_idx * (360 / len(st.session_state.wheel_prizes)))
+                        fig = draw_wheel(np.deg2rad(final_rotation))
+                        col_wheel.pyplot(fig)
+                        st.session_state.winner = st.session_state.wheel_prizes[prize_idx]
+                        save_data()
+                        st.session_state.spinning = False
+            else:
+                st.info("No students in credit data to select.")
 
         with col_result:
             if 'winner' in st.session_state:
@@ -605,7 +592,7 @@ with tab6:
             if os.path.exists('Money.xlsm'):
                 try:
                     st.session_state.money_data = pd.read_excel("Money.xlsm", engine='openpyxl')
-                    save_data()  # Save to file
+                    save_data()
                     st.dataframe(st.session_state.money_data, use_container_width=True)
                 except Exception as e:
                     st.error(f"Error loading Money.xlsm: {str(e)}")
