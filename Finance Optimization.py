@@ -115,7 +115,7 @@ load_data()
 # Admin Authentication
 # ------------------------------
 def admin_login():
-    admin_password = "admin123"  # CHANGE THIS!
+    admin_password = "ilovepikachu" # Could change later
     password = st.text_input("Enter Admin Password (leave blank for user access)", type="password")
     
     if password == admin_password:
@@ -831,4 +831,4 @@ with tab7:
         if not st.session_state.money_data.empty:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
-            st.info("Money transfer records will be displayed here if available.")
+            st.info("Money transfer records will be displayed here if available."
