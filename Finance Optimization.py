@@ -11,24 +11,46 @@ import bcrypt
 from pathlib import Path
 
 # ------------------------------
-# Configuration & Security Setup
+# Configuration & Security Setup (UPDATED)
 # ------------------------------
+# File paths
 DATA_FILE = "app_data.json"
 USERS_FILE = "users.json"
-ROLES = ["user", "admin"]  # Simplified roles per request
-CREATOR_ROLE = "creator"  # Special super-admin role
+CONFIG_FILE = "app_config.json"  # For persistent settings (e.g., signup visibility)
 
-# Ensure necessary files exist
-for file in [DATA_FILE, USERS_FILE]:
+# Roles (expanded to include credit_manager)
+ROLES = ["user", "admin", "credit_manager"]
+CREATOR_ROLE = "creator"  # Special super-admin role (hidden from regular users)
+
+# Ensure all required files exist
+for file in [DATA_FILE, USERS_FILE, CONFIG_FILE]:
     if not Path(file).exists():
+        initial_data = {}
+        # Set default config (signup hidden by default)
+        if file == CONFIG_FILE:
+            initial_data = {"show_signup": False}
         with open(file, "w") as f:
-            json.dump({}, f)
+            json.dump(initial_data, f)
 
 # ------------------------------
-# Password & User Management
+# Persistent Config Management (NEW)
+# ------------------------------
+def load_config():
+    """Load app settings (e.g., signup visibility)"""
+    with open(CONFIG_FILE, "r") as f:
+        config = json.load(f)
+    return config.get("show_signup", False)
+
+def save_config(show_signup):
+    """Save app settings (controls signup visibility)"""
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"show_signup": show_signup}, f, indent=2)
+
+# ------------------------------
+# Password & User Management (UPDATED)
 # ------------------------------
 def hash_password(password):
-    """Hash a password for storage"""
+    """Hash a password for secure storage"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 def verify_password(password, hashed_password):
@@ -36,13 +58,17 @@ def verify_password(password, hashed_password):
     return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
 
 def load_users():
-    """Load user data from file"""
+    """Load user data (filter invalid entries)"""
     with open(USERS_FILE, "r") as f:
         users = json.load(f)
-    return {k: v for k, v in users.items() if "password_hash" in v and "role" in v}
+    # Only keep users with required fields (password_hash + role)
+    return {
+        k: v for k, v in users.items() 
+        if "password_hash" in v and "role" in v and "created_at" in v
+    }
 
-def save_user(username, password, role):
-    """Save a new user with hashed password"""
+def save_user(username, password, role="user"):
+    """Save a new user (default role: user)"""
     users = load_users()
     if username in users:
         return False, "Username already exists"
@@ -50,7 +76,7 @@ def save_user(username, password, role):
     users[username] = {
         "password_hash": hash_password(password),
         "role": role,
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat()  # Track account creation time
     }
     
     with open(USERS_FILE, "w") as f:
@@ -59,8 +85,9 @@ def save_user(username, password, role):
 
 def update_user_role(username, new_role):
     """Update a user's role (creator only)"""
-    if new_role not in ROLES + [CREATOR_ROLE]:
-        return False, "Invalid role"
+    valid_roles = ROLES + [CREATOR_ROLE]
+    if new_role not in valid_roles:
+        return False, f"Invalid role. Choose: {', '.join(valid_roles)}"
         
     users = load_users()
     if username not in users:
@@ -69,7 +96,7 @@ def update_user_role(username, new_role):
     users[username]["role"] = new_role
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
-    return True, "Role updated successfully"
+    return True, f"Role updated to {new_role}"
 
 def delete_user(username):
     """Delete a user (creator only)"""
@@ -83,10 +110,10 @@ def delete_user(username):
     return True, "User deleted successfully"
 
 # ------------------------------
-# Persistent Data Storage
+# Persistent Data Storage (UNCHANGED)
 # ------------------------------
 def load_data():
-    """Load app data from JSON file with safety checks"""
+    """Load app data with safety checks"""
     if Path(DATA_FILE).exists():
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
@@ -115,7 +142,7 @@ def load_data():
         save_data()
 
 def save_data():
-    """Save current session state to JSON file"""
+    """Save current session state to JSON"""
     data = {
         "scheduled_events": st.session_state.scheduled_events.to_dict(orient="records"),
         "occasional_events": st.session_state.occasional_events.to_dict(orient="records"),
@@ -133,43 +160,36 @@ def save_data():
 
 def safe_init_data():
     """Initialize default data with guaranteed columns"""
-    # Scheduled events
     st.session_state.scheduled_events = pd.DataFrame(columns=[
         'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
     ])
 
-    # Occasional events
     st.session_state.occasional_events = pd.DataFrame(columns=[
         'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
         'Preparation Time', 'Rating'
     ])
 
-    # Credit data
     st.session_state.credit_data = pd.DataFrame({
         'Name': ['Alice', 'Bob', 'Charlie'],
         'Total_Credits': [200, 150, 300],
         'RedeemedCredits': [50, 0, 100]
     })
 
-    # Reward data
     st.session_state.reward_data = pd.DataFrame({
         'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
         'Cost': [50, 30, 80],
         'Stock': [10, 20, 5]
     })
 
-    # Wheel prizes
     st.session_state.wheel_prizes = ["50 Credits", "Bubble Tea", "Chips", "100 Credits", "Café Coupon", "Free Prom Ticket"]
     st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
 
-    # Other data
     st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
     st.session_state.allocation_count = 0
     st.session_state.spinning = False
     st.session_state.calendar_events = {}
     st.session_state.announcements = []
 
-    # Attendance data
     st.session_state.meeting_names = ["Meeting 1"]
     st.session_state.attendance = pd.DataFrame({
         'Name': ['Alice', 'Bob', 'Charlie'],
@@ -177,26 +197,37 @@ def safe_init_data():
     })
 
 # ------------------------------
-# Authentication System
+# Authentication System (COMPLETELY REDESIGNED)
 # ------------------------------
 def login():
-    """Single login form for all users"""
+    """Unified login form (works for regular users AND hidden creator access)"""
     if "user" in st.session_state:
         return True  # Already logged in
     
     st.subheader("Login")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
+    username = st.text_input("Username", key="login_username")
+    password = st.text_input("Password", type="password", key="login_password")
     col_login, col_clear = st.columns(2)
     
     with col_login:
-        if st.button("Login"):
+        if st.button("Login", key="login_btn"):
+            # 1. First check if credentials match creator (hidden access)
+            creator_username = st.secrets.get("creator", {}).get("username", "")
+            creator_password = st.secrets.get("creator", {}).get("password", "")
+            
+            if username == creator_username and password == creator_password and creator_username != "":
+                st.session_state.user = username
+                st.session_state.role = CREATOR_ROLE
+                st.success(f"Logged in as {username} (Creator)")
+                return True
+            
+            # 2. If not creator, check regular users
             users = load_users()
             if username in users:
                 if verify_password(password, users[username]["password_hash"]):
                     st.session_state.user = username
                     st.session_state.role = users[username]["role"]
-                    st.success(f"Logged in as {username} ({users[username]['role']})")
+                    st.success(f"Logged in as {username} ({users[username]['role'].capitalize()})")
                     return True
                 else:
                     st.error("Incorrect password")
@@ -204,42 +235,51 @@ def login():
                 st.error("Username not found")
     
     with col_clear:
-        if st.button("Clear"):
+        if st.button("Clear", key="login_clear_btn"):
             st.session_state.user = None
             st.session_state.role = None
-            st.experimental_rerun()
+            st.rerun()
     
     return False
 
-def creator_login():
-    """Special login for creator role (separate from regular users)"""
-    if st.session_state.get("role") == CREATOR_ROLE:
-        return True
+def signup():
+    """Signup form (visible only if creator enables it)"""
+    show_signup = load_config()
+    if not show_signup:
+        return  # Don't show signup if creator disabled it
+    
+    with st.expander("Create New Account", expanded=False):
+        st.subheader("Sign Up (Default: User Role)")
+        new_username = st.text_input("Choose Username", key="signup_username")
+        new_password = st.text_input("Choose Password", type="password", key="signup_password")
+        confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm")
         
-    st.subheader("Creator Access")
-    creator_password = st.secrets.get("creator_password", "")
-    password = st.text_input("Enter Creator Password", type="password")
-    
-    if st.button("Verify Creator"):
-        if password == creator_password and creator_password != "":
-            st.session_state.role = CREATOR_ROLE
-            st.success("Creator access granted")
-            return True
-        else:
-            st.error("Invalid creator password")
-    
-    return False
+        if st.button("Create Account", key="signup_btn"):
+            if not new_username or not new_password:
+                st.error("Please fill in all fields")
+                return
+            
+            if new_password != confirm_password:
+                st.error("Passwords do not match")
+                return
+            
+            # Save user with DEFAULT role: "user"
+            success, msg = save_user(new_username, new_password, role="user")
+            if success:
+                st.success(f"{msg} You can now log in.")
+            else:
+                st.error(msg)
 
 def logout():
     """Log out current user"""
-    if st.button("Logout"):
+    if st.button("Logout", key="logout_btn"):
         st.session_state.user = None
         st.session_state.role = None
         st.success("Logged out successfully")
-        st.experimental_rerun()
+        st.rerun()
 
 # ------------------------------
-# Permission Checks
+# Permission Checks (UPDATED for Credit Manager)
 # ------------------------------
 def is_admin():
     """Check if user is admin or creator"""
@@ -247,22 +287,26 @@ def is_admin():
     return role in ["admin", CREATOR_ROLE]
 
 def is_creator():
-    """Check if user is creator"""
+    """Check if user is creator (super-admin)"""
     return st.session_state.get("role") == CREATOR_ROLE
+
+def is_credit_manager():
+    """Check if user has credit manager role"""
+    return st.session_state.get("role") == "credit_manager"
 
 def is_user():
     """Check if user has basic user role"""
     return st.session_state.get("role") == "user"
 
 # ------------------------------
-# Attendance Helpers
+# Helper Functions (UNCHANGED)
 # ------------------------------
 def calculate_attendance_rates():
-    """Calculate attendance rate (% of meetings attended) for each person"""
+    """Calculate attendance rate for each person"""
     if len(st.session_state.meeting_names) == 0:
         return pd.DataFrame({
             'Name': st.session_state.attendance['Name'],
-            'Attendance Rate': [0.0 for _ in range(len(st.session_state.attendance))]
+            'Attendance Rate (%)': [0.0 for _ in range(len(st.session_state.attendance))]
         })
     
     rates = []
@@ -277,7 +321,7 @@ def calculate_attendance_rates():
     })
 
 def add_new_meeting():
-    """Add a new meeting column to attendance records"""
+    """Add a new meeting column to attendance"""
     new_meeting_num = len(st.session_state.meeting_names) + 1
     new_meeting_name = f"Meeting {new_meeting_num}"
     st.session_state.meeting_names.append(new_meeting_name)
@@ -286,7 +330,7 @@ def add_new_meeting():
     st.success(f"Added new meeting: {new_meeting_name}")
 
 def delete_meeting(meeting_name):
-    """Delete a meeting column from attendance records"""
+    """Delete a meeting column"""
     if meeting_name in st.session_state.meeting_names:
         st.session_state.meeting_names.remove(meeting_name)
         st.session_state.attendance = st.session_state.attendance.drop(columns=[meeting_name])
@@ -296,7 +340,7 @@ def delete_meeting(meeting_name):
         st.error(f"Meeting {meeting_name} not found")
 
 def add_new_person(name):
-    """Add a new person to attendance records"""
+    """Add a new person to attendance"""
     if name in st.session_state.attendance['Name'].values:
         st.warning(f"{name} is already in the attendance list")
         return
@@ -313,7 +357,7 @@ def add_new_person(name):
     st.success(f"Added {name} to attendance list")
 
 def delete_person(name):
-    """Delete a person from attendance records"""
+    """Delete a person from attendance"""
     if name in st.session_state.attendance['Name'].values:
         st.session_state.attendance = st.session_state.attendance[
             st.session_state.attendance['Name'] != name
@@ -323,10 +367,8 @@ def delete_person(name):
     else:
         st.error(f"Person {name} not found")
 
-# ------------------------------
-# Calendar Helpers
-# ------------------------------
 def get_month_grid():
+    """Generate calendar grid for current month"""
     today = date.today()
     year, month = today.year, today.month
     
@@ -351,18 +393,18 @@ def get_month_grid():
     return grid, month, year
 
 def format_date_for_display(dt):
+    """Format date for calendar display"""
     return dt.strftime("%d")
 
-# ------------------------------
-# Other Helpers
-# ------------------------------
 def update_leaderboard():
+    """Update credit leaderboard"""
     if not st.session_state.credit_data.empty:
         st.session_state.credit_data = st.session_state.credit_data.sort_values(
             by='Total_Credits', ascending=False
         ).reset_index(drop=True)
 
 def draw_wheel(rotation_angle=0):
+    """Draw lucky draw wheel"""
     n = len(st.session_state.wheel_prizes)
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.set_aspect('equal')
@@ -390,7 +432,7 @@ def draw_wheel(rotation_angle=0):
     return fig
 
 # ------------------------------
-# Main App Layout
+# Main App Layout (UPDATED)
 # ------------------------------
 st.set_page_config(page_title="Student Council Manager", layout="wide")
 st.title("Student Council Manager")
@@ -441,89 +483,119 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# Authentication Flow - Single Login
+# Authentication Flow (NEW)
 # ------------------------------
+# Show login + signup (if enabled) in main area first
 if not login():
+    signup()  # Only shows if creator enabled it
     st.stop()  # Stop app if not logged in
 
 # ------------------------------
-# Sidebar with User Info & Logout
+# Sidebar (REDESIGNED: No visible creator section)
 # ------------------------------
 with st.sidebar:
-    st.subheader(f"Logged in as: {st.session_state.user or 'Guest'}")  # Handle missing user
+    # User Info
+    st.subheader(f"Logged in as: {st.session_state.user}")
     
-    # Get role with multiple fallbacks to ensure it's a string
-    role = st.session_state.get("role")
-    if role is None:
-        role = "unknown"  # Explicit fallback if role is None
-    
-    role_color = {
+    # Role Badge
+    role = st.session_state.get("role", "unknown")
+    role_styles = {
         "user": "background-color: #e0e0e0; color: #333;",
         "admin": "background-color: #e8f5e9; color: #2e7d32;",
+        "credit_manager": "background-color: #e3f2fd; color: #1976d2;",
         "creator": "background-color: #fff3e0; color: #e65100;",
         "unknown": "background-color: #f5f5f5; color: #757575;"
-    }.get(role, "background-color: #f5f5f5; color: #757575;")
-    
-    # Safely capitalize with a check
-    display_role = role.capitalize() if isinstance(role, str) else "Unknown"
-    st.markdown(f'<span class="role-badge" style="{role_color}">{display_role}</span>', unsafe_allow_html=True)
+    }
+    st.markdown(
+        f'<span class="role-badge" style="{role_styles[role]}">{role.capitalize()}</span>',
+        unsafe_allow_html=True
+    )
     
     logout()
     st.divider()
-    
-    # Creator access section
-    if role != CREATOR_ROLE and st.button("Creator Access"):
-        creator_login()
 
-# ------------------------------
-# Creator-only User Management
-# ------------------------------
-if is_creator():
-    with st.sidebar.expander("User Management (Creator Only)"):
-        st.subheader("Add New User")
-        new_username = st.text_input("New Username")
-        new_password = st.text_input("New Password", type="password")
-        new_role = st.selectbox("User Role", ROLES)
+    # ------------------------------
+    # Creator-Only Controls (HIDDEN FROM OTHERS)
+    # ------------------------------
+    if is_creator():
+        st.subheader("Creator Controls")
         
-        if st.button("Create User") and new_username and new_password:
-            success, msg = save_user(new_username, new_password, new_role)
-            if success:
-                st.success(msg)
-            else:
-                st.error(msg)
+        # 1. Toggle Signup Visibility (closeable by creator)
+        current_signup_state = load_config()
+        new_signup_state = st.checkbox(
+            "Enable Signup Form for New Users", 
+            value=current_signup_state,
+            key="toggle_signup"
+        )
+        if new_signup_state != current_signup_state:
+            save_config(new_signup_state)
+            st.success(f"Signup form {'enabled' if new_signup_state else 'disabled'}")
+            st.rerun()
         
         st.divider()
-        st.subheader("Manage Existing Users")
+        
+        # 2. User Management (View/Edit/Delete Users)
+        st.subheader("User Management")
+        
+        # Add New User (Creator can add any role)
+        st.subheader("Add User (Any Role)")
+        new_username = st.text_input("New Username", key="creator_add_user")
+        new_password = st.text_input("New Password", type="password", key="creator_add_pass")
+        new_role = st.selectbox("User Role", ROLES + [CREATOR_ROLE], key="creator_add_role")
+        
+        if st.button("Create User", key="creator_add_btn") and new_username and new_password:
+            success, msg = save_user(new_username, new_password, new_role)
+            st.success(msg) if success else st.error(msg)
+        
+        st.divider()
+        
+        # Manage Existing Users
+        st.subheader("Manage Users")
         users = load_users()
         if users:
-            selected_user = st.selectbox("Select User", list(users.keys()))
-            col_update, col_delete = st.columns(2)
+            # Show user table (hide password hashes)
+            user_table = pd.DataFrame([
+                {
+                    "Username": username,
+                    "Role": user["role"].capitalize(),
+                    "Created At": datetime.fromisoformat(user["created_at"]).strftime("%Y-%m-%d %H:%M")
+                }
+                for username, user in users.items()
+            ])
+            st.dataframe(user_table, use_container_width=True)
             
-            with col_update:
-                new_role = st.selectbox("New Role", ROLES + [CREATOR_ROLE], 
-                                      index=ROLES.index(users[selected_user]["role"]) if users[selected_user]["role"] in ROLES else 0)
-                if st.button("Update Role"):
-                    success, msg = update_user_role(selected_user, new_role)
-                    if success:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
-            
-            with col_delete:
-                if st.button("Delete User", type="secondary"):
-                    success, msg = delete_user(selected_user)
-                    if success:
-                        st.success(msg)
-                    else:
-                        st.error(msg)
+            # Select user to modify
+            selected_user = st.selectbox("Select User", list(users.keys()), key="creator_select_user")
+            if selected_user:
+                col_update, col_delete = st.columns(2)
+                
+                # Update Role
+                with col_update:
+                    current_role = users[selected_user]["role"]
+                    updated_role = st.selectbox(
+                        "Update Role", 
+                        ROLES + [CREATOR_ROLE], 
+                        index=(ROLES + [CREATOR_ROLE]).index(current_role),
+                        key="creator_update_role"
+                    )
+                    if st.button("Update Role", key="creator_update_btn"):
+                        success, msg = update_user_role(selected_user, updated_role)
+                        st.success(msg) if success else st.error(msg)
+                
+                # Delete User
+                with col_delete:
+                    if st.button("Delete User", type="secondary", key="creator_delete_btn"):
+                        success, msg = delete_user(selected_user)
+                        st.success(msg) if success else st.error(msg)
+                        st.rerun()
         else:
             st.info("No users found")
 
-# Load data after authentication
+# Load app data after authentication
 load_data()
 
 # ------------------------------
-# Main Tabs (With Role-Specific Access)
+# Main Tabs (UPDATED for Credit Manager Role)
 # ------------------------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Calendar", 
@@ -536,7 +608,7 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 # ------------------------------
-# Tab 1: Calendar (View for all, edit for admins)
+# Tab 1: Calendar (Unchanged)
 # ------------------------------
 with tab1:
     st.subheader("Calendar")
@@ -550,7 +622,7 @@ with tab1:
     for col, header in zip(header_cols, headers):
         col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
     
-    # Calendar grid - Viewable by all
+    # Calendar grid (viewable by all)
     for week in grid:
         day_cols = st.columns(7)
         for col, dt in zip(day_cols, week):
@@ -571,9 +643,9 @@ with tab1:
                 unsafe_allow_html=True
             )
     
-    # Admin-only calendar management
+    # Admin/Creator-only calendar management
     if is_admin():
-        with st.expander("Manage Plans (Admin Only)"):
+        with st.expander("Manage Plans (Admin/Creator Only)"):
             plan_date = st.date_input("Select Date", today)
             date_str = plan_date.strftime("%Y-%m-%d")
             current_plan = st.session_state.calendar_events.get(date_str, "")
@@ -597,7 +669,7 @@ with tab1:
                     st.success(f"Deleted plan for {plan_date.strftime('%b %d')}!")
 
 # ------------------------------
-# Tab 2: Announcements (View for all, edit for admins)
+# Tab 2: Announcements (Unchanged)
 # ------------------------------
 with tab2:
     st.subheader("Announcements")
@@ -626,9 +698,9 @@ with tab2:
     else:
         st.info("No announcements yet.")
     
-    # Admin-only announcement creation
+    # Admin/Creator-only announcement creation
     if is_admin():
-        with st.expander("Add New Announcement (Admin Only)"):
+        with st.expander("Add New Announcement (Admin/Creator Only)"):
             new_announcement = st.text_area("New Announcement", "Next meeting: Friday 3 PM")
             if st.button("Post Announcement"):
                 st.session_state.announcements.append({
@@ -639,7 +711,7 @@ with tab2:
                 st.success("Announcement posted!")
 
 # ------------------------------
-# Tab 3: Financial Optimizing (View and use for users, full control for admins)
+# Tab 3: Financial Optimizing (Unchanged)
 # ------------------------------
 with tab3:
     st.subheader("Financial Progress")
@@ -658,9 +730,9 @@ with tab3:
         st.subheader("Scheduled Events")
         st.dataframe(st.session_state.scheduled_events, use_container_width=True)
 
-        # Admin-only event management
+        # Admin/Creator-only event management
         if is_admin():
-            with st.expander("Add/Edit Scheduled Events (Admin Only)"):
+            with st.expander("Add/Edit Scheduled Events (Admin/Creator Only)"):
                 event_name = st.text_input("Event Name", "Fundraiser")
                 funds_per_event = st.number_input("Funds Per Event", value=100.0)
                 freq_per_month = st.number_input("Frequency Per Month", value=1, step=1)
@@ -682,7 +754,7 @@ with tab3:
             if not st.session_state.scheduled_events.empty:
                 col_select, col_delete = st.columns([3,1])
                 with col_select:
-                    event_to_delete = st.selectbox("Select Event to Delete (Admin Only)", st.session_state.scheduled_events['Event Name'])
+                    event_to_delete = st.selectbox("Select Event to Delete", st.session_state.scheduled_events['Event Name'])
                 with col_delete:
                     if st.button("Delete", type="secondary"):
                         st.session_state.scheduled_events = st.session_state.scheduled_events[
@@ -693,19 +765,16 @@ with tab3:
             else:
                 st.info("No scheduled events to delete.")
 
-        if 'Total Funds' in st.session_state.scheduled_events.columns:
-            total_scheduled = st.session_state.scheduled_events['Total Funds'].sum()
-        else:
-            total_scheduled = 0.0
+        total_scheduled = st.session_state.scheduled_events['Total Funds'].sum() if 'Total Funds' in st.session_state.scheduled_events.columns else 0.0
         st.metric("Aggregate Funds (Scheduled)", f"${total_scheduled:.2f}")
 
     with col_right:
         st.subheader("Occasional Events")
         st.dataframe(st.session_state.occasional_events, use_container_width=True)
 
-        # Admin-only event management
+        # Admin/Creator-only event management
         if is_admin():
-            with st.expander("Add/Edit Occasional Events (Admin Only)"):
+            with st.expander("Add/Edit Occasional Events (Admin/Creator Only)"):
                 event_name = st.text_input("Event Name (Occasional)", "Charity Drive")
                 funds_raised = st.number_input("Total Funds Raised", value=500.0)
                 cost = st.number_input("Cost", value=100.0)
@@ -731,7 +800,7 @@ with tab3:
             if not st.session_state.occasional_events.empty:
                 col_select, col_delete = st.columns([3,1])
                 with col_select:
-                    event_to_delete = st.selectbox("Select Occasional Event to Delete (Admin Only)", st.session_state.occasional_events['Event Name'])
+                    event_to_delete = st.selectbox("Select Occasional Event to Delete", st.session_state.occasional_events['Event Name'])
                 with col_delete:
                     if st.button("Delete", type="secondary"):
                         st.session_state.occasional_events = st.session_state.occasional_events[
@@ -742,7 +811,7 @@ with tab3:
             else:
                 st.info("No occasional events to delete.")
 
-        # Both users and admins can sort and use optimizer
+        # All users can sort by rating
         if not st.session_state.occasional_events.empty:
             if st.button("Sort by Rating (Descending)"):
                 st.session_state.occasional_events = st.session_state.occasional_events.sort_values(
@@ -751,7 +820,7 @@ with tab3:
                 save_data()
                 st.success("Sorted!")
 
-        # Financial optimizer - Accessible to all users (main user functionality)
+        # Financial optimizer (all users)
         if not st.session_state.occasional_events.empty:
             total_target = st.number_input("Total Fundraising Target", value=5000.0)
             if st.button("Optimize Allocation"):
@@ -781,26 +850,23 @@ with tab3:
                 save_data()
                 st.success("Optimization complete!")
 
-        if not st.session_state.occasional_events.empty and 'Total Funds Raised' in st.session_state.occasional_events.columns and 'Cost' in st.session_state.occasional_events.columns:
-            total_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum()
-        else:
-            total_occasional = 0.0
+        total_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum() if not st.session_state.occasional_events.empty else 0.0
         st.metric("Aggregate Funds (Occasional)", f"${total_occasional:.2f}")
 
 # ------------------------------
-# Tab 4: Attendance (View for all, edit for admins)
+# Tab 4: Attendance (Unchanged)
 # ------------------------------
 with tab4:
     st.subheader("Attendance Records")
     
-    # Show public attendance rates for all users
+    # Public attendance summary (all users)
     st.subheader("Attendance Summary")
     attendance_rates = calculate_attendance_rates()
     st.dataframe(attendance_rates, use_container_width=True)
     
-    # Admin-only detailed view
+    # Admin/Creator-only detailed management
     if is_admin():
-        st.subheader("Detailed Attendance (Admin Only)")
+        st.subheader("Detailed Attendance (Admin/Creator Only)")
         
         if len(st.session_state.meeting_names) == 0:
             st.info("No meetings created yet. Add a meeting below.")
@@ -808,9 +874,7 @@ with tab4:
             st.write("Check the box if the person attended the meeting:")
             edited_attendance = st.data_editor(
                 st.session_state.attendance,
-                column_config={
-                    "Name": st.column_config.TextColumn("Name", disabled=True),
-                },
+                column_config={"Name": st.column_config.TextColumn("Name", disabled=True)},
                 disabled=False,
                 use_container_width=True
             )
@@ -822,7 +886,7 @@ with tab4:
         
         # Meeting management
         st.divider()
-        st.subheader("Manage Meetings (Admin Only)")
+        st.subheader("Manage Meetings (Admin/Creator Only)")
         col_add_meeting, col_delete_meeting = st.columns(2)
         
         with col_add_meeting:
@@ -839,7 +903,7 @@ with tab4:
         
         # People management
         st.divider()
-        st.subheader("Manage People (Admin Only)")
+        st.subheader("Manage People (Admin/Creator Only)")
         col_add_person, col_delete_person = st.columns(2)
         
         with col_add_person:
@@ -856,7 +920,7 @@ with tab4:
                 st.info("No people to delete")
 
 # ------------------------------
-# Tab 5: Credit & Reward System (View for all, edit for admins)
+# Tab 5: Credit & Reward System (UPDATED for Credit Manager)
 # ------------------------------
 with tab5:
     col_credits, col_rewards = st.columns(2)
@@ -866,9 +930,9 @@ with tab5:
         update_leaderboard()
         st.dataframe(st.session_state.credit_data, use_container_width=True)
 
-        # Admin-only credit management
-        if is_admin():
-            with st.expander("Manage Student Credits (Admin Only)"):
+        # Credit Manager + Admin + Creator can manage credits
+        if is_admin() or is_credit_manager():
+            with st.expander("Manage Student Credits (Credit Manager/Admin/Creator Only)"):
                 st.subheader("Add New Contribution")
                 student_name = st.text_input("Student Name", "Dave")
                 contribution_type = st.selectbox("Contribution Type", ["Money", "Hours", "Events"])
@@ -913,9 +977,9 @@ with tab5:
         st.subheader("Available Rewards")
         st.dataframe(st.session_state.reward_data, use_container_width=True)
 
-        # Admin-only reward management
+        # Admin + Creator can manage rewards (Credit Manager cannot)
         if is_admin():
-            with st.expander("Manage Rewards (Admin Only)"):
+            with st.expander("Manage Rewards (Admin/Creator Only)"):
                 st.subheader("Add New Reward")
                 reward_name = st.text_input("Reward Name", "New Reward")
                 reward_cost = st.number_input("Reward Cost (Credits)", value=50)
@@ -966,9 +1030,9 @@ with tab5:
                         save_data()
                         st.success(f"Removed reward: {reward_to_remove}")
 
-    # Lucky draw accessible to admins
+    # Lucky draw (Admin/Creator only)
     if is_admin():
-        st.subheader("Lucky Draw (Admin Only)")
+        st.subheader("Lucky Draw (Admin/Creator Only)")
         col_wheel, col_result = st.columns(2)
         
         with col_wheel:
@@ -1007,20 +1071,20 @@ with tab5:
         st.info("Lucky draw is only accessible to admins.")
 
 # ------------------------------
-# Tab 6: SCIS Specific AI (View for all)
+# Tab 6: SCIS Specific AI (Unchanged)
 # ------------------------------
 with tab6:
     st.subheader("SCIS Specific AI")
     st.info("This section is under development and will be available soon.")
 
 # ------------------------------
-# Tab 7: Money Transfer (View for all, edit for admins)
+# Tab 7: Money Transfer (Unchanged)
 # ------------------------------
 with tab7:
     st.subheader("Money Transfer Records")
     
     if is_admin():
-        st.subheader("Manage Records (Admin Only)")
+        st.subheader("Manage Records (Admin/Creator Only)")
         if st.button("Load Money Data"):
             if os.path.exists('Money.xlsm'):
                 try:
@@ -1044,5 +1108,3 @@ with tab7:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
             st.info("Money transfer records will be displayed here if available.")
-
-
