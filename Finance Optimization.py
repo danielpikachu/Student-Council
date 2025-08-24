@@ -450,17 +450,24 @@ if not login():
 # Sidebar with User Info & Logout
 # ------------------------------
 with st.sidebar:
-    st.subheader(f"Logged in as: {st.session_state.user}")
-    role = st.session_state.get("role", "unknown")  # Add default value "unknown"
+    st.subheader(f"Logged in as: {st.session_state.user or 'Guest'}")  # Handle missing user
+    
+    # Get role with multiple fallbacks to ensure it's a string
+    role = st.session_state.get("role")
+    if role is None:
+        role = "unknown"  # Explicit fallback if role is None
+    
     role_color = {
         "user": "background-color: #e0e0e0; color: #333;",
         "admin": "background-color: #e8f5e9; color: #2e7d32;",
         "creator": "background-color: #fff3e0; color: #e65100;",
-        "unknown": "background-color: #f5f5f5; color: #757575;"  # Add style for unknown
+        "unknown": "background-color: #f5f5f5; color: #757575;"
     }.get(role, "background-color: #f5f5f5; color: #757575;")
     
-    # Use role directly since we have a default
-    st.markdown(f'<span class="role-badge" style="{role_color}">{role.capitalize()}</span>', unsafe_allow_html=True)
+    # Safely capitalize with a check
+    display_role = role.capitalize() if isinstance(role, str) else "Unknown"
+    st.markdown(f'<span class="role-badge" style="{role_color}">{display_role}</span>', unsafe_allow_html=True)
+    
     logout()
     st.divider()
     
@@ -1037,4 +1044,5 @@ with tab7:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
             st.info("Money transfer records will be displayed here if available.")
+
 
