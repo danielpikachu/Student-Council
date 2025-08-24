@@ -498,7 +498,7 @@ with st.sidebar:
     st.subheader(f"Logged in as: {st.session_state.user}")
     
     # Role Badge
-    role = st.session_state.get("role", "unknown")
+    role = st.session_state.get("role", "unknown")  # Default to "unknown" if role is None
     role_styles = {
         "user": "background-color: #e0e0e0; color: #333;",
         "admin": "background-color: #e8f5e9; color: #2e7d32;",
@@ -506,8 +506,11 @@ with st.sidebar:
         "creator": "background-color: #fff3e0; color: #e65100;",
         "unknown": "background-color: #f5f5f5; color: #757575;"
     }
+    
+    # Ensure we use a valid role key
+    display_role = role if role in role_styles else "unknown"
     st.markdown(
-        f'<span class="role-badge" style="{role_styles[role]}">{role.capitalize()}</span>',
+        f'<span class="role-badge" style="{role_styles[display_role]}">{display_role.capitalize()}</span>',
         unsafe_allow_html=True
     )
     
@@ -1108,3 +1111,4 @@ with tab7:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
             st.info("Money transfer records will be displayed here if available.")
+
