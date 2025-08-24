@@ -7,20 +7,91 @@ from datetime import datetime, date, timedelta
 import time
 import os
 import json
+import bcrypt
 from pathlib import Path
+
+# ------------------------------
+# Configuration & Security Setup
+# ------------------------------
+DATA_FILE = "app_data.json"
+USERS_FILE = "users.json"
+ROLES = ["user", "admin"]  # Simplified roles per request
+CREATOR_ROLE = "creator"  # Special super-admin role
+
+# Ensure necessary files exist
+for file in [DATA_FILE, USERS_FILE]:
+    if not Path(file).exists():
+        with open(file, "w") as f:
+            json.dump({}, f)
+
+# ------------------------------
+# Password & User Management
+# ------------------------------
+def hash_password(password):
+    """Hash a password for storage"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password, hashed_password):
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def load_users():
+    """Load user data from file"""
+    with open(USERS_FILE, "r") as f:
+        users = json.load(f)
+    return {k: v for k, v in users.items() if "password_hash" in v and "role" in v}
+
+def save_user(username, password, role):
+    """Save a new user with hashed password"""
+    users = load_users()
+    if username in users:
+        return False, "Username already exists"
+    
+    users[username] = {
+        "password_hash": hash_password(password),
+        "role": role,
+        "created_at": datetime.now().isoformat()
+    }
+    
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    return True, "User created successfully"
+
+def update_user_role(username, new_role):
+    """Update a user's role (creator only)"""
+    if new_role not in ROLES + [CREATOR_ROLE]:
+        return False, "Invalid role"
+        
+    users = load_users()
+    if username not in users:
+        return False, "User not found"
+        
+    users[username]["role"] = new_role
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    return True, "Role updated successfully"
+
+def delete_user(username):
+    """Delete a user (creator only)"""
+    users = load_users()
+    if username not in users:
+        return False, "User not found"
+        
+    del users[username]
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    return True, "User deleted successfully"
 
 # ------------------------------
 # Persistent Data Storage
 # ------------------------------
-DATA_FILE = "app_data.json"
-
 def load_data():
-    """Load data from JSON file with proper column initialization and missing key handling"""
+    """Load app data from JSON file with safety checks"""
     if Path(DATA_FILE).exists():
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
         
-        # Restore data with proper column checks
+        # Initialize with defaults if keys are missing
         st.session_state.scheduled_events = pd.DataFrame(data.get("scheduled_events", []))
         required_columns = ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds']
         for col in required_columns:
@@ -33,8 +104,6 @@ def load_data():
         st.session_state.calendar_events = data.get("calendar_events", {})
         st.session_state.announcements = data.get("announcements", [])
         st.session_state.money_data = pd.DataFrame(data.get("money_data", []))
-        
-        # Handle potentially missing attendance data with default values
         st.session_state.attendance = pd.DataFrame(data.get("attendance", {
             'Name': ['Alice', 'Bob', 'Charlie'],
             'Meeting 1': [True, False, True]
@@ -96,37 +165,94 @@ def safe_init_data():
     # Other data
     st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
     st.session_state.allocation_count = 0
-    st.session_state.is_admin = False
     st.session_state.spinning = False
     st.session_state.calendar_events = {}
     st.session_state.announcements = []
 
     # Attendance data
-    st.session_state.meeting_names = ["Meeting 1"]  # Track meeting column names
+    st.session_state.meeting_names = ["Meeting 1"]
     st.session_state.attendance = pd.DataFrame({
         'Name': ['Alice', 'Bob', 'Charlie'],
-        'Meeting 1': [True, False, True]  # Default attendance for first meeting
+        'Meeting 1': [True, False, True]
     })
 
-# Load persistent data
-load_data()
+# ------------------------------
+# Authentication System
+# ------------------------------
+def login():
+    """Single login form for all users"""
+    if "user" in st.session_state:
+        return True  # Already logged in
+    
+    st.subheader("Login")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
+    col_login, col_clear = st.columns(2)
+    
+    with col_login:
+        if st.button("Login"):
+            users = load_users()
+            if username in users:
+                if verify_password(password, users[username]["password_hash"]):
+                    st.session_state.user = username
+                    st.session_state.role = users[username]["role"]
+                    st.success(f"Logged in as {username} ({users[username]['role']})")
+                    return True
+                else:
+                    st.error("Incorrect password")
+            else:
+                st.error("Username not found")
+    
+    with col_clear:
+        if st.button("Clear"):
+            st.session_state.user = None
+            st.session_state.role = None
+            st.experimental_rerun()
+    
+    return False
+
+def creator_login():
+    """Special login for creator role (separate from regular users)"""
+    if st.session_state.get("role") == CREATOR_ROLE:
+        return True
+        
+    st.subheader("Creator Access")
+    creator_password = st.secrets.get("creator_password", "")
+    password = st.text_input("Enter Creator Password", type="password")
+    
+    if st.button("Verify Creator"):
+        if password == creator_password and creator_password != "":
+            st.session_state.role = CREATOR_ROLE
+            st.success("Creator access granted")
+            return True
+        else:
+            st.error("Invalid creator password")
+    
+    return False
+
+def logout():
+    """Log out current user"""
+    if st.button("Logout"):
+        st.session_state.user = None
+        st.session_state.role = None
+        st.success("Logged out successfully")
+        st.experimental_rerun()
 
 # ------------------------------
-# Admin Authentication
+# Permission Checks
 # ------------------------------
-def admin_login():
-    admin_password = "ilovepikachu" # Could change later
-    password = st.text_input("Enter Admin Password (leave blank for user access)", type="password")
-    
-    if password == admin_password:
-        st.session_state.is_admin = True
-        st.success("Logged in as Admin!")
-    elif password != "":
-        st.error("Incorrect password. Accessing as regular user.")
-        st.session_state.is_admin = False
-    else:
-        st.session_state.is_admin = False
-        st.info("Accessing as regular user")
+def is_admin():
+    """Check if user is admin or creator"""
+    role = st.session_state.get("role")
+    return role in ["admin", CREATOR_ROLE]
+
+def is_creator():
+    """Check if user is creator"""
+    return st.session_state.get("role") == CREATOR_ROLE
+
+def is_user():
+    """Check if user has basic user role"""
+    return st.session_state.get("role") == "user"
 
 # ------------------------------
 # Attendance Helpers
@@ -139,7 +265,6 @@ def calculate_attendance_rates():
             'Attendance Rate': [0.0 for _ in range(len(st.session_state.attendance))]
         })
     
-    # Calculate rate for each person
     rates = []
     for _, row in st.session_state.attendance.iterrows():
         attended = sum(row[meeting] for meeting in st.session_state.meeting_names if pd.notna(row[meeting]))
@@ -156,8 +281,6 @@ def add_new_meeting():
     new_meeting_num = len(st.session_state.meeting_names) + 1
     new_meeting_name = f"Meeting {new_meeting_num}"
     st.session_state.meeting_names.append(new_meeting_name)
-    
-    # Add column with default False (absent) for all existing people
     st.session_state.attendance[new_meeting_name] = False
     save_data()
     st.success(f"Added new meeting: {new_meeting_name}")
@@ -165,9 +288,7 @@ def add_new_meeting():
 def delete_meeting(meeting_name):
     """Delete a meeting column from attendance records"""
     if meeting_name in st.session_state.meeting_names:
-        # Remove from meeting names list
         st.session_state.meeting_names.remove(meeting_name)
-        # Remove column from attendance DataFrame
         st.session_state.attendance = st.session_state.attendance.drop(columns=[meeting_name])
         save_data()
         st.success(f"Deleted meeting: {meeting_name}")
@@ -180,7 +301,6 @@ def add_new_person(name):
         st.warning(f"{name} is already in the attendance list")
         return
     
-    # Create new row with False for all meetings
     new_row = {'Name': name}
     for meeting in st.session_state.meeting_names:
         new_row[meeting] = False
@@ -275,6 +395,12 @@ def draw_wheel(rotation_angle=0):
 st.set_page_config(page_title="Student Council Manager", layout="wide")
 st.title("Student Council Manager")
 
+# Initialize session state
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "role" not in st.session_state:
+    st.session_state.role = None
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -305,23 +431,91 @@ st.markdown("""
     background-color: #fff0f0;
     color: #dc2626;
 }
+.role-badge {
+    border-radius: 12px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
 </style>
 """, unsafe_allow_html=True)
 
+# ------------------------------
+# Authentication Flow - Single Login
+# ------------------------------
+if not login():
+    st.stop()  # Stop app if not logged in
+
+# ------------------------------
+# Sidebar with User Info & Logout
+# ------------------------------
 with st.sidebar:
-    st.subheader("Access Control")
-    admin_login()
+    st.subheader(f"Logged in as: {st.session_state.user}")
+    role = st.session_state.role
+    role_color = {
+        "user": "background-color: #e0e0e0; color: #333;",
+        "admin": "background-color: #e8f5e9; color: #2e7d32;",
+        "creator": "background-color: #fff3e0; color: #e65100;"
+    }.get(role, "background-color: #f5f5f5; color: #757575;")
+    
+    st.markdown(f'<span class="role-badge" style="{role_color}">{role.capitalize()}</span>', unsafe_allow_html=True)
+    logout()
     st.divider()
     
-    if st.session_state.is_admin:
-        st.subheader("Data File Status")
-        st.success("✅ Data automatically saved")
-        if os.path.exists(DATA_FILE):
-            st.info(f"Data stored in: {DATA_FILE}")
-        else:
-            st.warning("Data file will be created on first save")
+    # Creator access section
+    if role != CREATOR_ROLE and st.button("Creator Access"):
+        creator_login()
 
-# Tabs with Attendance tab (4th)
+# ------------------------------
+# Creator-only User Management
+# ------------------------------
+if is_creator():
+    with st.sidebar.expander("User Management (Creator Only)"):
+        st.subheader("Add New User")
+        new_username = st.text_input("New Username")
+        new_password = st.text_input("New Password", type="password")
+        new_role = st.selectbox("User Role", ROLES)
+        
+        if st.button("Create User") and new_username and new_password:
+            success, msg = save_user(new_username, new_password, new_role)
+            if success:
+                st.success(msg)
+            else:
+                st.error(msg)
+        
+        st.divider()
+        st.subheader("Manage Existing Users")
+        users = load_users()
+        if users:
+            selected_user = st.selectbox("Select User", list(users.keys()))
+            col_update, col_delete = st.columns(2)
+            
+            with col_update:
+                new_role = st.selectbox("New Role", ROLES + [CREATOR_ROLE], 
+                                      index=ROLES.index(users[selected_user]["role"]) if users[selected_user]["role"] in ROLES else 0)
+                if st.button("Update Role"):
+                    success, msg = update_user_role(selected_user, new_role)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+            
+            with col_delete:
+                if st.button("Delete User", type="secondary"):
+                    success, msg = delete_user(selected_user)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+        else:
+            st.info("No users found")
+
+# Load data after authentication
+load_data()
+
+# ------------------------------
+# Main Tabs (With Role-Specific Access)
+# ------------------------------
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "Calendar", 
     "Announcements",
@@ -333,9 +527,10 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 # ------------------------------
-# Tab 1: Calendar
+# Tab 1: Calendar (View for all, edit for admins)
 # ------------------------------
 with tab1:
+    st.subheader("Calendar")
     today = date.today()
     grid, month, year = get_month_grid()
     st.subheader(f"{datetime(year, month, 1).strftime('%B %Y')}")
@@ -346,7 +541,7 @@ with tab1:
     for col, header in zip(header_cols, headers):
         col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
     
-    # Calendar grid
+    # Calendar grid - Viewable by all
     for week in grid:
         day_cols = st.columns(7)
         for col, dt in zip(day_cols, week):
@@ -367,8 +562,8 @@ with tab1:
                 unsafe_allow_html=True
             )
     
-    # Admin controls with delete
-    if st.session_state.is_admin:
+    # Admin-only calendar management
+    if is_admin():
         with st.expander("Manage Plans (Admin Only)"):
             plan_date = st.date_input("Select Date", today)
             date_str = plan_date.strftime("%Y-%m-%d")
@@ -393,11 +588,12 @@ with tab1:
                     st.success(f"Deleted plan for {plan_date.strftime('%b %d')}!")
 
 # ------------------------------
-# Tab 2: Announcements
+# Tab 2: Announcements (View for all, edit for admins)
 # ------------------------------
 with tab2:
     st.subheader("Announcements")
     
+    # Viewable by all
     if st.session_state.announcements:
         sorted_announcements = sorted(
             st.session_state.announcements, 
@@ -410,7 +606,7 @@ with tab2:
             with col_text:
                 st.info(f"**{datetime.fromisoformat(ann['time']).strftime('%b %d, %H:%M')}**\n\n{ann['text']}")
             with col_delete:
-                if st.session_state.is_admin:
+                if is_admin():
                     if st.button("Delete", key=f"del_ann_{idx}", type="secondary"):
                         st.session_state.announcements.pop(idx)
                         save_data()
@@ -421,7 +617,8 @@ with tab2:
     else:
         st.info("No announcements yet.")
     
-    if st.session_state.is_admin:
+    # Admin-only announcement creation
+    if is_admin():
         with st.expander("Add New Announcement (Admin Only)"):
             new_announcement = st.text_area("New Announcement", "Next meeting: Friday 3 PM")
             if st.button("Post Announcement"):
@@ -433,7 +630,7 @@ with tab2:
                 st.success("Announcement posted!")
 
 # ------------------------------
-# Tab 3: Financial Optimizing
+# Tab 3: Financial Optimizing (View and use for users, full control for admins)
 # ------------------------------
 with tab3:
     st.subheader("Financial Progress")
@@ -452,38 +649,40 @@ with tab3:
         st.subheader("Scheduled Events")
         st.dataframe(st.session_state.scheduled_events, use_container_width=True)
 
-        with st.expander("Add New Scheduled Event"):
-            event_name = st.text_input("Event Name", "Fundraiser")
-            funds_per_event = st.number_input("Funds Per Event", value=100.0)
-            freq_per_month = st.number_input("Frequency Per Month", value=1, step=1)
-            
-            if st.button("Add Scheduled Event"):
-                total = funds_per_event * freq_per_month * 11
-                new_event = pd.DataFrame({
-                    'Event Name': [event_name],
-                    'Funds Per Event': [funds_per_event],
-                    'Frequency Per Month': [freq_per_month],
-                    'Total Funds': [total]
-                })
-                st.session_state.scheduled_events = pd.concat(
-                    [st.session_state.scheduled_events, new_event], ignore_index=True
-                )
-                save_data()
-                st.success("Event added!")
-
-        if not st.session_state.scheduled_events.empty:
-            col_select, col_delete = st.columns([3,1])
-            with col_select:
-                event_to_delete = st.selectbox("Select Event to Delete", st.session_state.scheduled_events['Event Name'])
-            with col_delete:
-                if st.button("Delete", type="secondary"):
-                    st.session_state.scheduled_events = st.session_state.scheduled_events[
-                        st.session_state.scheduled_events['Event Name'] != event_to_delete
-                    ].reset_index(drop=True)
+        # Admin-only event management
+        if is_admin():
+            with st.expander("Add/Edit Scheduled Events (Admin Only)"):
+                event_name = st.text_input("Event Name", "Fundraiser")
+                funds_per_event = st.number_input("Funds Per Event", value=100.0)
+                freq_per_month = st.number_input("Frequency Per Month", value=1, step=1)
+                
+                if st.button("Add Scheduled Event"):
+                    total = funds_per_event * freq_per_month * 11
+                    new_event = pd.DataFrame({
+                        'Event Name': [event_name],
+                        'Funds Per Event': [funds_per_event],
+                        'Frequency Per Month': [freq_per_month],
+                        'Total Funds': [total]
+                    })
+                    st.session_state.scheduled_events = pd.concat(
+                        [st.session_state.scheduled_events, new_event], ignore_index=True
+                    )
                     save_data()
-                    st.success("Event deleted!")
-        else:
-            st.info("No scheduled events to delete. Add an event first.")
+                    st.success("Event added!")
+
+            if not st.session_state.scheduled_events.empty:
+                col_select, col_delete = st.columns([3,1])
+                with col_select:
+                    event_to_delete = st.selectbox("Select Event to Delete (Admin Only)", st.session_state.scheduled_events['Event Name'])
+                with col_delete:
+                    if st.button("Delete", type="secondary"):
+                        st.session_state.scheduled_events = st.session_state.scheduled_events[
+                            st.session_state.scheduled_events['Event Name'] != event_to_delete
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success("Event deleted!")
+            else:
+                st.info("No scheduled events to delete.")
 
         if 'Total Funds' in st.session_state.scheduled_events.columns:
             total_scheduled = st.session_state.scheduled_events['Total Funds'].sum()
@@ -495,43 +694,46 @@ with tab3:
         st.subheader("Occasional Events")
         st.dataframe(st.session_state.occasional_events, use_container_width=True)
 
-        with st.expander("Add New Occasional Event"):
-            event_name = st.text_input("Event Name (Occasional)", "Charity Drive")
-            funds_raised = st.number_input("Total Funds Raised", value=500.0)
-            cost = st.number_input("Cost", value=100.0)
-            staff_many = st.selectbox("Staff Many? (1=Yes, 0=No)", [0, 1])
-            prep_time = st.selectbox("Prep Time <1 Week? (1=Yes, 0=No)", [0, 1])
-            
-            if st.button("Add Occasional Event"):
-                rating = (funds_raised * 0.5) - (cost * 0.5) + (staff_many * 0.1 * 100) + (prep_time * 0.1 * 100)
-                new_event = pd.DataFrame({
-                    'Event Name': [event_name],
-                    'Total Funds Raised': [funds_raised],
-                    'Cost': [cost],
-                    'Staff Many Or Not': [staff_many],
-                    'Preparation Time': [prep_time],
-                    'Rating': [rating]
-                })
-                st.session_state.occasional_events = pd.concat(
-                    [st.session_state.occasional_events, new_event], ignore_index=True
-                )
-                save_data()
-                st.success("Event added!")
-
-        if not st.session_state.occasional_events.empty:
-            col_select, col_delete = st.columns([3,1])
-            with col_select:
-                event_to_delete = st.selectbox("Select Occasional Event to Delete", st.session_state.occasional_events['Event Name'])
-            with col_delete:
-                if st.button("Delete", type="secondary"):
-                    st.session_state.occasional_events = st.session_state.occasional_events[
-                        st.session_state.occasional_events['Event Name'] != event_to_delete
-                    ].reset_index(drop=True)
+        # Admin-only event management
+        if is_admin():
+            with st.expander("Add/Edit Occasional Events (Admin Only)"):
+                event_name = st.text_input("Event Name (Occasional)", "Charity Drive")
+                funds_raised = st.number_input("Total Funds Raised", value=500.0)
+                cost = st.number_input("Cost", value=100.0)
+                staff_many = st.selectbox("Staff Many? (1=Yes, 0=No)", [0, 1])
+                prep_time = st.selectbox("Prep Time <1 Week? (1=Yes, 0=No)", [0, 1])
+                
+                if st.button("Add Occasional Event"):
+                    rating = (funds_raised * 0.5) - (cost * 0.5) + (staff_many * 0.1 * 100) + (prep_time * 0.1 * 100)
+                    new_event = pd.DataFrame({
+                        'Event Name': [event_name],
+                        'Total Funds Raised': [funds_raised],
+                        'Cost': [cost],
+                        'Staff Many Or Not': [staff_many],
+                        'Preparation Time': [prep_time],
+                        'Rating': [rating]
+                    })
+                    st.session_state.occasional_events = pd.concat(
+                        [st.session_state.occasional_events, new_event], ignore_index=True
+                    )
                     save_data()
-                    st.success("Event deleted!")
-        else:
-            st.info("No occasional events to delete. Add an event first.")
+                    st.success("Event added!")
 
+            if not st.session_state.occasional_events.empty:
+                col_select, col_delete = st.columns([3,1])
+                with col_select:
+                    event_to_delete = st.selectbox("Select Occasional Event to Delete (Admin Only)", st.session_state.occasional_events['Event Name'])
+                with col_delete:
+                    if st.button("Delete", type="secondary"):
+                        st.session_state.occasional_events = st.session_state.occasional_events[
+                            st.session_state.occasional_events['Event Name'] != event_to_delete
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success("Event deleted!")
+            else:
+                st.info("No occasional events to delete.")
+
+        # Both users and admins can sort and use optimizer
         if not st.session_state.occasional_events.empty:
             if st.button("Sort by Rating (Descending)"):
                 st.session_state.occasional_events = st.session_state.occasional_events.sort_values(
@@ -540,6 +742,7 @@ with tab3:
                 save_data()
                 st.success("Sorted!")
 
+        # Financial optimizer - Accessible to all users (main user functionality)
         if not st.session_state.occasional_events.empty:
             total_target = st.number_input("Total Fundraising Target", value=5000.0)
             if st.button("Optimize Allocation"):
@@ -576,7 +779,7 @@ with tab3:
         st.metric("Aggregate Funds (Occasional)", f"${total_occasional:.2f}")
 
 # ------------------------------
-# Tab 4: Attendance
+# Tab 4: Attendance (View for all, edit for admins)
 # ------------------------------
 with tab4:
     st.subheader("Attendance Records")
@@ -586,16 +789,14 @@ with tab4:
     attendance_rates = calculate_attendance_rates()
     st.dataframe(attendance_rates, use_container_width=True)
     
-    # Admin-only detailed view with editing and delete
-    if st.session_state.is_admin:
+    # Admin-only detailed view
+    if is_admin():
         st.subheader("Detailed Attendance (Admin Only)")
         
-        # Show current meetings
         if len(st.session_state.meeting_names) == 0:
             st.info("No meetings created yet. Add a meeting below.")
         else:
             st.write("Check the box if the person attended the meeting:")
-            # Use data editor for checkbox editing
             edited_attendance = st.data_editor(
                 st.session_state.attendance,
                 column_config={
@@ -605,15 +806,14 @@ with tab4:
                 use_container_width=True
             )
             
-            # Save changes when edited
             if not edited_attendance.equals(st.session_state.attendance):
                 st.session_state.attendance = edited_attendance
                 save_data()
                 st.success("Attendance records updated!")
         
-        # Admin controls: Manage meetings
+        # Meeting management
         st.divider()
-        st.subheader("Manage Meetings")
+        st.subheader("Manage Meetings (Admin Only)")
         col_add_meeting, col_delete_meeting = st.columns(2)
         
         with col_add_meeting:
@@ -628,9 +828,9 @@ with tab4:
             else:
                 st.info("No meetings to delete")
         
-        # Admin controls: Manage people
+        # People management
         st.divider()
-        st.subheader("Manage People")
+        st.subheader("Manage People (Admin Only)")
         col_add_person, col_delete_person = st.columns(2)
         
         with col_add_person:
@@ -647,7 +847,7 @@ with tab4:
                 st.info("No people to delete")
 
 # ------------------------------
-# Tab 5: Credit & Reward System
+# Tab 5: Credit & Reward System (View for all, edit for admins)
 # ------------------------------
 with tab5:
     col_credits, col_rewards = st.columns(2)
@@ -657,7 +857,8 @@ with tab5:
         update_leaderboard()
         st.dataframe(st.session_state.credit_data, use_container_width=True)
 
-        if st.session_state.is_admin:
+        # Admin-only credit management
+        if is_admin():
             with st.expander("Manage Student Credits (Admin Only)"):
                 st.subheader("Add New Contribution")
                 student_name = st.text_input("Student Name", "Dave")
@@ -703,7 +904,8 @@ with tab5:
         st.subheader("Available Rewards")
         st.dataframe(st.session_state.reward_data, use_container_width=True)
 
-        if st.session_state.is_admin:
+        # Admin-only reward management
+        if is_admin():
             with st.expander("Manage Rewards (Admin Only)"):
                 st.subheader("Add New Reward")
                 reward_name = st.text_input("Reward Name", "New Reward")
@@ -755,7 +957,8 @@ with tab5:
                         save_data()
                         st.success(f"Removed reward: {reward_to_remove}")
 
-    if st.session_state.is_admin:
+    # Lucky draw accessible to admins
+    if is_admin():
         st.subheader("Lucky Draw (Admin Only)")
         col_wheel, col_result = st.columns(2)
         
@@ -795,19 +998,19 @@ with tab5:
         st.info("Lucky draw is only accessible to admins.")
 
 # ------------------------------
-# Tab 6: SCIS Specific AI
+# Tab 6: SCIS Specific AI (View for all)
 # ------------------------------
 with tab6:
     st.subheader("SCIS Specific AI")
     st.info("This section is under development and will be available soon.")
 
 # ------------------------------
-# Tab 7: Money Transfer
+# Tab 7: Money Transfer (View for all, edit for admins)
 # ------------------------------
 with tab7:
     st.subheader("Money Transfer Records")
     
-    if st.session_state.is_admin:
+    if is_admin():
         st.subheader("Manage Records (Admin Only)")
         if st.button("Load Money Data"):
             if os.path.exists('Money.xlsm'):
