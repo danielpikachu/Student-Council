@@ -481,6 +481,7 @@ with st.sidebar:
     st.markdown(
         f'<span class="role-badge" style="{role_styles[display_role]}">{display_role.capitalize()}</span>',
         unsafe_allow_html=True
+    )
     st.divider()
     
     # Creator-Only Controls
@@ -1052,5 +1053,6 @@ with tab7:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
             st.info("Money transfer records will be displayed here if available.")
+
 
 
