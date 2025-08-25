@@ -180,7 +180,7 @@ def safe_init_data():
     })
 
 # ------------------------------
-# Authentication System (FIXED: Sidebar Login)
+# Authentication System
 # ------------------------------
 def login():
     """Login form IN SIDEBAR for all users"""
@@ -463,27 +463,6 @@ if not login():
 # Sidebar (With User Info)
 # ------------------------------
 with st.sidebar:
-    # User Info
-    st.subheader(f"Logged in as: {st.session_state.user}")
-    
-    # Role Badge (Fixed role handling)
-    role = st.session_state.get("role", "unknown")
-    role_styles = {
-        "user": "background-color: #e0e0e0; color: #333;",
-        "admin": "background-color: #e8f5e9; color: #2e7d32;",
-        "credit_manager": "background-color: #e3f2fd; color: #1976d2;",
-        "creator": "background-color: #fff3e0; color: #e65100;",
-        "unknown": "background-color: #f5f5f5; color: #757575;"
-    }
-    # Use safe lookup with fallback
-    display_role = role if role in role_styles else "unknown"
-    st.markdown(
-        f'<span class="role-badge" style="{role_styles[display_role]}">{display_role.capitalize()}</span>',
-        unsafe_allow_html=True
-    )
-    
-    logout()
-    st.divider()
 
     # Creator-Only Controls
     if is_creator():
@@ -1054,3 +1033,4 @@ with tab7:
             st.dataframe(st.session_state.money_data, use_container_width=True)
         else:
             st.info("Money transfer records will be displayed here if available.")
+
