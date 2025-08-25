@@ -11,18 +11,15 @@ import bcrypt
 from pathlib import Path
 
 # ------------------------------
-# App Configuration
+# Configuration & Security Setup
 # ------------------------------
-st.set_page_config(page_title="SCIS Stuco HQ", layout="wide")
+DATA_FILE = "app_data.json"
+USERS_FILE = "users.json"
+CONFIG_FILE = "app_config.json"
 
-# ------------------------------
-# File Paths & Initialization
-# ------------------------------
-DATA_FILE = "stuco_data.json"
-USERS_FILE = "stuco_users.json"
-CONFIG_FILE = "stuco_config.json"
+ROLES = ["user", "admin", "credit_manager"]
+CREATOR_ROLE = "creator"
 
-# Ensure data files exist
 for file in [DATA_FILE, USERS_FILE, CONFIG_FILE]:
     if not Path(file).exists():
         initial_data = {}
@@ -32,43 +29,19 @@ for file in [DATA_FILE, USERS_FILE, CONFIG_FILE]:
             json.dump(initial_data, f)
 
 # ------------------------------
-# Role Definitions
-# ------------------------------
-ROLES = ["member", "admin", "treasurer"]
-CREATOR_ROLE = "creator"
-
-# ------------------------------
-# Session State Initialization
-# ------------------------------
-def init_session_state():
-    if "user" not in st.session_state:
-        st.session_state.user = None
-    if "role" not in st.session_state:
-        st.session_state.role = None
-    if "login_attempted" not in st.session_state:
-        st.session_state.login_attempted = False
-    if "wheel_prizes" not in st.session_state:
-        st.session_state.wheel_prizes = ["50 Credits", "Bubble Tea", "Chips", "100 Credits", "Café Coupon", "Free Prom Ticket"]
-    if "wheel_colors" not in st.session_state:
-        st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
-    if "spinning" not in st.session_state:
-        st.session_state.spinning = False
-
-init_session_state()
-
-# ------------------------------
-# Config Management
+# Persistent Config Management
 # ------------------------------
 def load_config():
     with open(CONFIG_FILE, "r") as f:
-        return json.load(f)
+        config = json.load(f)
+    return config.get("show_signup", False)
 
-def save_config(config):
+def save_config(show_signup):
     with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+        json.dump({"show_signup": show_signup}, f, indent=2)
 
 # ------------------------------
-# User Authentication
+# Password & User Management
 # ------------------------------
 def hash_password(password):
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -78,12 +51,16 @@ def verify_password(password, hashed_password):
 
 def load_users():
     with open(USERS_FILE, "r") as f:
-        return json.load(f)
+        users = json.load(f)
+    return {
+        k: v for k, v in users.items() 
+        if "password_hash" in v and "role" in v and "created_at" in v
+    }
 
-def save_user(username, password, role="member"):
+def save_user(username, password, role="user"):
     users = load_users()
     if username in users:
-        return False, "Username exists"
+        return False, "Username already exists"
     
     users[username] = {
         "password_hash": hash_password(password),
@@ -93,41 +70,92 @@ def save_user(username, password, role="member"):
     
     with open(USERS_FILE, "w") as f:
         json.dump(users, f, indent=2)
-    return True, "User created"
+    return True, "User created successfully"
+
+def update_user_role(username, new_role):
+    valid_roles = ROLES + [CREATOR_ROLE]
+    if new_role not in valid_roles:
+        return False, f"Invalid role. Choose: {', '.join(valid_roles)}"
+        
+    users = load_users()
+    if username not in users:
+        return False, "User not found"
+        
+    users[username]["role"] = new_role
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    return True, f"Role updated to {new_role}"
+
+def delete_user(username):
+    users = load_users()
+    if username not in users:
+        return False, "User not found"
+        
+    del users[username]
+    with open(USERS_FILE, "w") as f:
+        json.dump(users, f, indent=2)
+    return True, "User deleted successfully"
 
 # ------------------------------
-# Data Management
+# Persistent Data Storage
 # ------------------------------
-def load_app_data():
+def load_data():
     if Path(DATA_FILE).exists():
         with open(DATA_FILE, "r") as f:
             data = json.load(f)
         
         st.session_state.scheduled_events = pd.DataFrame(data.get("scheduled_events", []))
+        required_columns = ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds']
+        for col in required_columns:
+            if col not in st.session_state.scheduled_events.columns:
+                st.session_state.scheduled_events[col] = pd.Series(dtype='float64' if col != 'Event Name' else 'object')
+
         st.session_state.occasional_events = pd.DataFrame(data.get("occasional_events", []))
         st.session_state.credit_data = pd.DataFrame(data.get("credit_data", []))
         st.session_state.reward_data = pd.DataFrame(data.get("reward_data", []))
         st.session_state.calendar_events = data.get("calendar_events", {})
         st.session_state.announcements = data.get("announcements", [])
-        st.session_state.attendance = pd.DataFrame(data.get("attendance", []))
-        st.session_state.meeting_names = data.get("meeting_names", [])
-    else:
-        init_default_data()
+        st.session_state.money_data = pd.DataFrame(data.get("money_data", []))
+        st.session_state.attendance = pd.DataFrame(data.get("attendance", {
+            'Name': ['Alice', 'Bob', 'Charlie'],
+            'Meeting 1': [True, False, True]
+        }))
+        st.session_state.meeting_names = data.get("meeting_names", ["Meeting 1"])
 
-def init_default_data():
+    else:
+        safe_init_data()
+        save_data()
+
+def save_data():
+    data = {
+        "scheduled_events": st.session_state.scheduled_events.to_dict(orient="records"),
+        "occasional_events": st.session_state.occasional_events.to_dict(orient="records"),
+        "credit_data": st.session_state.credit_data.to_dict(orient="records"),
+        "reward_data": st.session_state.reward_data.to_dict(orient="records"),
+        "calendar_events": st.session_state.calendar_events,
+        "announcements": st.session_state.announcements,
+        "money_data": st.session_state.money_data.to_dict(orient="records"),
+        "attendance": st.session_state.attendance.to_dict(orient="records"),
+        "meeting_names": st.session_state.meeting_names
+    }
+    
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def safe_init_data():
     st.session_state.scheduled_events = pd.DataFrame(columns=[
         'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
     ])
 
     st.session_state.occasional_events = pd.DataFrame(columns=[
-        'Event Name', 'Total Funds Raised', 'Cost', 'Staff Needed', 
-        'Prep Time (Weeks)', 'Rating'
+        'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+        'Preparation Time', 'Rating'
     ])
 
     st.session_state.credit_data = pd.DataFrame({
-        'Name': ['Emma', 'Liam', 'Olivia'],
-        'Total_Credits': [150, 200, 100],
-        'RedeemedCredits': [30, 0, 50]
+        'Name': ['Alice', 'Bob', 'Charlie'],
+        'Total_Credits': [200, 150, 300],
+        'RedeemedCredits': [50, 0, 100]
     })
 
     st.session_state.reward_data = pd.DataFrame({
@@ -136,157 +164,131 @@ def init_default_data():
         'Stock': [10, 20, 5]
     })
 
+    st.session_state.wheel_prizes = ["50 Credits", "Bubble Tea", "Chips", "100 Credits", "Café Coupon", "Free Prom Ticket"]
+    st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
+
+    st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
+    st.session_state.allocation_count = 0
+    st.session_state.spinning = False
     st.session_state.calendar_events = {}
     st.session_state.announcements = []
-    st.session_state.meeting_names = ["First Meeting"]
+
+    st.session_state.meeting_names = ["Meeting 1"]
     st.session_state.attendance = pd.DataFrame({
-        'Name': ['Emma', 'Liam', 'Olivia'],
-        'First Meeting': [True, False, True]
+        'Name': ['Alice', 'Bob', 'Charlie'],
+        'Meeting 1': [True, False, True]
     })
 
-def save_app_data():
-    data = {
-        "scheduled_events": st.session_state.scheduled_events.to_dict(orient="records"),
-        "occasional_events": st.session_state.occasional_events.to_dict(orient="records"),
-        "credit_data": st.session_state.credit_data.to_dict(orient="records"),
-        "reward_data": st.session_state.reward_data.to_dict(orient="records"),
-        "calendar_events": st.session_state.calendar_events,
-        "announcements": st.session_state.announcements,
-        "attendance": st.session_state.attendance.to_dict(orient="records"),
-        "meeting_names": st.session_state.meeting_names
-    }
+# ------------------------------
+# Authentication System
+# ------------------------------
+def login():
+    """Login form IN SIDEBAR for all users"""
+    if "user" in st.session_state:
+        return True  # Already logged in
     
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-
-# ------------------------------
-# Login/Signup Functions
-# ------------------------------
-def show_login_form():
-    """Display login form in sidebar"""
     with st.sidebar:
-        st.subheader("Account Login")
-        
-        username = st.text_input("Username", key="login_user")
-        password = st.text_input("Password", type="password", key="login_pass")
-        
+        st.subheader("Login")
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
         col_login, col_clear = st.columns(2)
+        
         with col_login:
-            if st.button("Login", use_container_width=True):
-                st.session_state.login_attempted = True
-                return process_login(username, password)
+            if st.button("Login", key="login_btn"):
+                # Check creator credentials first
+                creator_username = st.secrets.get("creator", {}).get("username", "")
+                creator_password = st.secrets.get("creator", {}).get("password", "")
+                
+                if username == creator_username and password == creator_password and creator_username != "":
+                    st.session_state.user = username
+                    st.session_state.role = CREATOR_ROLE
+                    st.success(f"Logged in as {username} (Creator)")
+                    return True
+                
+                # Check regular users
+                users = load_users()
+                if username in users:
+                    if verify_password(password, users[username]["password_hash"]):
+                        st.session_state.user = username
+                        st.session_state.role = users[username]["role"]
+                        st.success(f"Logged in as {username} ({users[username]['role'].capitalize()})")
+                        return True
+                    else:
+                        st.error("Incorrect password")
+                else:
+                    st.error("Username not found")
         
         with col_clear:
-            if st.button("Clear", use_container_width=True, type="secondary"):
-                st.session_state.login_user = ""
-                st.session_state.login_pass = ""
-                st.session_state.login_attempted = False
+            if st.button("Clear", key="login_clear_btn"):
+                st.session_state.user = None
+                st.session_state.role = None
                 st.rerun()
-        
-        # Show signup if enabled
-        config = load_config()
-        if config.get("show_signup", False):
-            with st.expander("Create New Account"):
-                new_user = st.text_input("New Username", key="new_user")
-                new_pass = st.text_input("New Password", type="password", key="new_pass")
-                confirm_pass = st.text_input("Confirm Password", type="password", key="confirm_pass")
-                
-                if st.button("Sign Up", key="signup_btn"):
-                    if not new_user or not new_pass:
-                        st.error("Fill all fields")
-                        return False
-                    if new_pass != confirm_pass:
-                        st.error("Passwords don't match")
-                        return False
-                    
-                    success, msg = save_user(new_user, new_pass)
-                    if success:
-                        st.success("Account created! Please log in.")
-                    else:
-                        st.error(msg)
-                    return False
     
     return False
 
-def process_login(username, password):
-    """Authenticate user credentials"""
-    # Check creator credentials first
-    creator_user = st.secrets.get("creator", {}).get("username", "")
-    creator_pass = st.secrets.get("creator", {}).get("password", "")
+def signup():
+    """Signup form in sidebar when enabled"""
+    show_signup = load_config()
+    if not show_signup:
+        return
     
-    if username == creator_user and password == creator_pass and creator_user:
-        st.session_state.user = username
-        st.session_state.role = CREATOR_ROLE
-        st.success("Logged in as Creator!")
-        return True
-    
-    # Check regular users
-    users = load_users()
-    if username in users:
-        if verify_password(password, users[username]["password_hash"]):
-            st.session_state.user = username
-            st.session_state.role = users[username]["role"]
-            st.success(f"Logged in as {username}")
-            return True
-        else:
-            st.error("Incorrect password")
-    else:
-        st.error("Username not found")
-    
-    return False
+    with st.sidebar.expander("Create New Account", expanded=False):
+        st.subheader("Sign Up")
+        new_username = st.text_input("Choose Username", key="signup_username")
+        new_password = st.text_input("Choose Password", type="password", key="signup_password")
+        confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm")
+        
+        if st.button("Create Account", key="signup_btn"):
+            if not new_username or not new_password:
+                st.error("Please fill in all fields")
+                return
+            
+            if new_password != confirm_password:
+                st.error("Passwords do not match")
+                return
+            
+            success, msg = save_user(new_username, new_password, role="user")
+            if success:
+                st.success(f"{msg} You can now log in.")
+            else:
+                st.error(msg)
 
-def show_logout_option():
-    """Show logout button in sidebar for logged-in users"""
-    with st.sidebar:
-        st.subheader(f"Logged in as: {st.session_state.user}")
-        
-        # Role badge
-        role = st.session_state.get("role", "unknown")
-        role_styles = {
-            "member": "background-color: #e0e0e0; color: #333;",
-            "admin": "background-color: #e8f5e9; color: #2e7d32;",
-            "treasurer": "background-color: #e3f2fd; color: #1976d2;",
-            "creator": "background-color: #fff3e0; color: #e65100;",
-            "unknown": "background-color: #f5f5f5; color: #757575;"
-        }
-        display_role = role if role in role_styles else "unknown"
-        st.markdown(
-            f'<span style="border-radius:12px;padding:3px 8px;font-size:0.75rem;font-weight:bold;'
-            f'{role_styles[display_role]}">{display_role.capitalize()}</span>',
-            unsafe_allow_html=True
-        )
-        
-        if st.button("Logout", use_container_width=True, type="secondary"):
-            st.session_state.user = None
-            st.session_state.role = None
-            st.success("Logged out successfully")
-            st.rerun()
-        
-        st.divider()
+def logout():
+    if st.button("Logout", key="logout_btn"):
+        st.session_state.user = None
+        st.session_state.role = None
+        st.success("Logged out successfully")
+        st.rerun()
 
 # ------------------------------
 # Permission Checks
 # ------------------------------
 def is_admin():
-    return st.session_state.get("role") in ["admin", CREATOR_ROLE]
-
-def is_treasurer():
-    return st.session_state.get("role") in ["treasurer", CREATOR_ROLE]
+    role = st.session_state.get("role")
+    return role in ["admin", CREATOR_ROLE]
 
 def is_creator():
     return st.session_state.get("role") == CREATOR_ROLE
+
+def is_credit_manager():
+    return st.session_state.get("role") == "credit_manager"
+
+def is_user():
+    return st.session_state.get("role") == "user"
 
 # ------------------------------
 # Helper Functions
 # ------------------------------
 def calculate_attendance_rates():
-    if not st.session_state.meeting_names:
-        return pd.DataFrame({'Name': [], 'Attendance Rate (%)': []})
+    if len(st.session_state.meeting_names) == 0:
+        return pd.DataFrame({
+            'Name': st.session_state.attendance['Name'],
+            'Attendance Rate (%)': [0.0 for _ in range(len(st.session_state.attendance))]
+        })
     
     rates = []
     for _, row in st.session_state.attendance.iterrows():
-        attended = sum(row[meeting] for meeting in st.session_state.meeting_names 
-                      if pd.notna(row[meeting]))
+        attended = sum(row[meeting] for meeting in st.session_state.meeting_names if pd.notna(row[meeting]))
         rate = (attended / len(st.session_state.meeting_names)) * 100
         rates.append(round(rate, 1))
     
@@ -294,6 +296,82 @@ def calculate_attendance_rates():
         'Name': st.session_state.attendance['Name'],
         'Attendance Rate (%)': rates
     })
+
+def add_new_meeting():
+    new_meeting_num = len(st.session_state.meeting_names) + 1
+    new_meeting_name = f"Meeting {new_meeting_num}"
+    st.session_state.meeting_names.append(new_meeting_name)
+    st.session_state.attendance[new_meeting_name] = False
+    save_data()
+    st.success(f"Added new meeting: {new_meeting_name}")
+
+def delete_meeting(meeting_name):
+    if meeting_name in st.session_state.meeting_names:
+        st.session_state.meeting_names.remove(meeting_name)
+        st.session_state.attendance = st.session_state.attendance.drop(columns=[meeting_name])
+        save_data()
+        st.success(f"Deleted meeting: {meeting_name}")
+    else:
+        st.error(f"Meeting {meeting_name} not found")
+
+def add_new_person(name):
+    if name in st.session_state.attendance['Name'].values:
+        st.warning(f"{name} is already in the attendance list")
+        return
+    
+    new_row = {'Name': name}
+    for meeting in st.session_state.meeting_names:
+        new_row[meeting] = False
+    
+    st.session_state.attendance = pd.concat(
+        [st.session_state.attendance, pd.DataFrame([new_row])],
+        ignore_index=True
+    )
+    save_data()
+    st.success(f"Added {name} to attendance list")
+
+def delete_person(name):
+    if name in st.session_state.attendance['Name'].values:
+        st.session_state.attendance = st.session_state.attendance[
+            st.session_state.attendance['Name'] != name
+        ].reset_index(drop=True)
+        save_data()
+        st.success(f"Deleted {name} from attendance list")
+    else:
+        st.error(f"Person {name} not found")
+
+def get_month_grid():
+    today = date.today()
+    year, month = today.year, today.month
+    
+    first_day = date(year, month, 1)
+    last_day = (date(year, month + 1, 1) - timedelta(days=1)) if month < 12 else date(year, 12, 31)
+    first_day_weekday = first_day.isoweekday() % 7
+    
+    total_days = (last_day - first_day).days + 1
+    total_slots = first_day_weekday + total_days
+    rows = (total_slots + 6) // 7
+    
+    grid = []
+    current_date = first_day - timedelta(days=first_day_weekday)
+    
+    for _ in range(rows):
+        week = []
+        for _ in range(7):
+            week.append(current_date)
+            current_date += timedelta(days=1)
+        grid.append(week)
+    
+    return grid, month, year
+
+def format_date_for_display(dt):
+    return dt.strftime("%d")
+
+def update_leaderboard():
+    if not st.session_state.credit_data.empty:
+        st.session_state.credit_data = st.session_state.credit_data.sort_values(
+            by='Total_Credits', ascending=False
+        ).reset_index(drop=True)
 
 def draw_wheel(rotation_angle=0):
     n = len(st.session_state.wheel_prizes)
@@ -315,368 +393,663 @@ def draw_wheel(rotation_angle=0):
                 ha='center', va='center', rotation=np.rad2deg(mid_angle) - 90,
                 fontsize=8)
 
+    circle = plt.Circle((0, 0), 0.1, color='white', edgecolor='black')
+    ax.add_patch(circle)
     ax.plot([0, 0], [0, 0.9], color='black', linewidth=2)
     ax.plot([-0.05, 0.05], [0.85, 0.9], color='black', linewidth=2)
+    
     return fig
 
 # ------------------------------
-# Main App Tabs
+# Main App Layout
 # ------------------------------
-def show_calendar_tab():
-    st.subheader("Student Council Calendar")
+st.set_page_config(page_title="Student Council Manager", layout="wide")
+st.title("Student Council Manager")
+
+# Initialize session state
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "role" not in st.session_state:
+    st.session_state.role = None
+
+# Custom CSS
+st.markdown("""
+<style>
+.calendar-day {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 8px;
+    min-height: 100px;
+    margin: 2px;
+}
+.today {
+    background-color: #e3f2fd;
+}
+.other-month {
+    background-color: #f5f5f5;
+    color: #9e9e9e;
+}
+.day-header {
+    font-weight: bold;
+    text-align: center;
+    padding: 8px;
+}
+.plan-text {
+    font-size: 0.85rem;
+    margin-top: 5px;
+}
+.delete-btn {
+    background-color: #fff0f0;
+    color: #dc2626;
+}
+.role-badge {
+    border-radius: 12px;
+    padding: 3px 8px;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ------------------------------
+# Authentication Flow (SIDEBAR)
+# ------------------------------
+# Show login in sidebar first
+if not login():
+    signup()  # Show signup in sidebar if enabled
+    st.stop()  # Stop app if not logged in
+
+# ------------------------------
+# Sidebar (With User Info)
+# ------------------------------
+with st.sidebar:
+
+        # User Info
+    st.subheader(f"Logged in as: {st.session_state.user}")
+    
+    # Role Badge (Fixed role handling)
+    role = st.session_state.get("role", "unknown")
+    role_styles = {
+        "user": "background-color: #e0e0e0; color: #333;",
+        "admin": "background-color: #e8f5e9; color: #2e7d32;",
+        "credit_manager": "background-color: #e3f2fd; color: #1976d2;",
+        "creator": "background-color: #fff3e0; color: #e65100;",
+        "unknown": "background-color: #f5f5f5; color: #757575;"
+    }
+    # Use safe lookup with fallback
+    display_role = role if role in role_styles else "unknown"
+    st.markdown(
+        f'<span class="role-badge" style="{role_styles[display_role]}">{display_role.capitalize()}</span>',
+        unsafe_allow_html=True
+    )
+    st.divider()
+    
+    # Creator-Only Controls
+    if is_creator():
+        st.subheader("Creator Controls")
+        
+        # Toggle Signup Visibility
+        current_signup_state = load_config()
+        new_signup_state = st.checkbox(
+            "Enable Signup Form", 
+            value=current_signup_state,
+            key="toggle_signup"
+        )
+        if new_signup_state != current_signup_state:
+            save_config(new_signup_state)
+            st.success(f"Signup form {'enabled' if new_signup_state else 'disabled'}")
+            st.rerun()
+        
+        st.divider()
+        
+        # User Management
+        st.subheader("User Management")
+        new_username = st.text_input("New Username", key="creator_add_user")
+        new_password = st.text_input("New Password", type="password", key="creator_add_pass")
+        new_role = st.selectbox("User Role", ROLES + [CREATOR_ROLE], key="creator_add_role")
+        
+        if st.button("Create User", key="creator_add_btn") and new_username and new_password:
+            success, msg = save_user(new_username, new_password, new_role)
+            st.success(msg) if success else st.error(msg)
+        
+        st.divider()
+        
+        # Manage Existing Users
+        st.subheader("Manage Users")
+        users = load_users()
+        if users:
+            user_table = pd.DataFrame([
+                {
+                    "Username": username,
+                    "Role": user["role"].capitalize(),
+                    "Created At": datetime.fromisoformat(user["created_at"]).strftime("%Y-%m-%d %H:%M")
+                }
+                for username, user in users.items()
+            ])
+            st.dataframe(user_table, use_container_width=True)
+            
+            selected_user = st.selectbox("Select User", list(users.keys()), key="creator_select_user")
+            if selected_user:
+                col_update, col_delete = st.columns(2)
+                
+                with col_update:
+                    current_role = users[selected_user]["role"]
+                    updated_role = st.selectbox(
+                        "Update Role", 
+                        ROLES + [CREATOR_ROLE], 
+                        index=(ROLES + [CREATOR_ROLE]).index(current_role),
+                        key="creator_update_role"
+                    )
+                    if st.button("Update Role", key="creator_update_btn"):
+                        success, msg = update_user_role(selected_user, updated_role)
+                        st.success(msg) if success else st.error(msg)
+                
+                with col_delete:
+                    if st.button("Delete User", type="secondary", key="creator_delete_btn"):
+                        success, msg = delete_user(selected_user)
+                        st.success(msg) if success else st.error(msg)
+                        st.rerun()
+        else:
+            st.info("No users found")
+
+# Load app data after authentication
+load_data()
+
+# ------------------------------
+# Main Tabs
+# ------------------------------
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "Calendar", 
+    "Announcements",
+    "Financial Optimizing", 
+    "Attendance",
+    "Credit & Reward System", 
+    "SCIS Specific AI", 
+    "Money Transfer"
+])
+
+# ------------------------------
+# Tab 1: Calendar
+# ------------------------------
+with tab1:
+    st.subheader("Calendar")
     today = date.today()
-    year, month = today.year, today.month
+    grid, month, year = get_month_grid()
+    st.subheader(f"{datetime(year, month, 1).strftime('%B %Y')}")
     
-    # Generate calendar grid
-    first_day = date(year, month, 1)
-    last_day = (date(year, month+1, 1) - timedelta(days=1)) if month < 12 else date(year, 12, 31)
-    first_weekday = first_day.weekday()  # 0=Monday
-    
-    # Create calendar grid
-    grid = []
-    current = first_day - timedelta(days=first_weekday)
-    for _ in range(6):  # Max 6 weeks
-        week = []
-        for _ in range(7):
-            week.append(current)
-            current += timedelta(days=1)
-        grid.append(week)
-        if current > last_day:
-            break
-    
-    # Display calendar headers
     headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     header_cols = st.columns(7)
     for col, header in zip(header_cols, headers):
-        col.markdown(f"**{header}**")
+        col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
     
-    # Display calendar days
     for week in grid:
         day_cols = st.columns(7)
         for col, dt in zip(day_cols, week):
             date_str = dt.strftime("%Y-%m-%d")
-            css = "background-color:#e3f2fd;" if dt == today else ""
-            if dt.month != month:
-                css = "background-color:#f0f0f0;color:#999;"
+            day_display = format_date_for_display(dt)
             
-            events = st.session_state.calendar_events.get(date_str, "")
+            css_class = "calendar-day "
+            if dt.month != month:
+                css_class += "other-month "
+            elif dt == today:
+                css_class += "today "
+            
+            plan_text = st.session_state.calendar_events.get(date_str, "")
+            plan_html = f'<div class="plan-text">{plan_text}</div>' if plan_text else ""
+            
             col.markdown(
-                f'<div style="border:1px solid #ddd;padding:5px;border-radius:5px;{css}">'
-                f'<strong>{dt.day}</strong><br>'
-                f'<small>{events}</small></div>',
+                f'<div class="{css_class}"><strong>{day_display}</strong>{plan_html}</div>',
                 unsafe_allow_html=True
             )
     
-    # Admin controls
     if is_admin():
-        with st.expander("Manage Calendar Events (Admin Only)"):
-            event_date = st.date_input("Select Date")
-            event_text = st.text_input("Event Description")
-            date_key = event_date.strftime("%Y-%m-%d")
+        with st.expander("Manage Plans (Admin/Creator Only)"):
+            plan_date = st.date_input("Select Date", today)
+            date_str = plan_date.strftime("%Y-%m-%d")
+            current_plan = st.session_state.calendar_events.get(date_str, "")
+            plan_text = st.text_input("Plan (max 10 words)", current_plan)
             
-            if st.button("Save Event"):
-                st.session_state.calendar_events[date_key] = event_text
-                save_app_data()
-                st.success("Event saved!")
+            word_count = len(plan_text.split())
+            if word_count > 10:
+                st.warning(f"Plan is too long ({word_count} words). Max 10 words.")
             
-            if date_key in st.session_state.calendar_events:
-                if st.button("Delete Event", type="secondary"):
-                    del st.session_state.calendar_events[date_key]
-                    save_app_data()
-                    st.success("Event deleted!")
+            col_save, col_delete = st.columns(2)
+            with col_save:
+                if st.button("Save Plan") and word_count <= 10:
+                    st.session_state.calendar_events[date_str] = plan_text
+                    save_data()
+                    st.success(f"Saved plan for {plan_date.strftime('%b %d')}!")
+            
+            with col_delete:
+                if st.button("Delete Plan", type="secondary") and date_str in st.session_state.calendar_events:
+                    del st.session_state.calendar_events[date_str]
+                    save_data()
+                    st.success(f"Deleted plan for {plan_date.strftime('%b %d')}!")
 
-def show_announcements_tab():
+# ------------------------------
+# Tab 2: Announcements
+# ------------------------------
+with tab2:
     st.subheader("Announcements")
     
-    # Display announcements
     if st.session_state.announcements:
-        for idx, ann in enumerate(sorted(
+        sorted_announcements = sorted(
             st.session_state.announcements, 
             key=lambda x: x["time"], 
             reverse=True
-        )):
-            col_text, col_del = st.columns([5, 1])
+        )
+        
+        for idx, ann in enumerate(sorted_announcements):
+            col_text, col_delete = st.columns([4, 1])
             with col_text:
                 st.info(f"**{datetime.fromisoformat(ann['time']).strftime('%b %d, %H:%M')}**\n\n{ann['text']}")
-            with col_del:
-                if is_admin() and st.button("×", key=f"del_ann_{idx}", type="secondary"):
-                    st.session_state.announcements.pop(idx)
-                    save_app_data()
-                    st.rerun()
+            with col_delete:
+                if is_admin():
+                    if st.button("Delete", key=f"del_ann_{idx}", type="secondary"):
+                        st.session_state.announcements.pop(idx)
+                        save_data()
+                        st.success("Announcement deleted. Refresh to see changes.")
+            
+            if idx < len(sorted_announcements) - 1:
+                st.divider()
     else:
         st.info("No announcements yet.")
     
-    # Add announcement (admin only)
     if is_admin():
-        with st.expander("Add New Announcement (Admin Only)"):
-            new_ann = st.text_area("Announcement Text")
+        with st.expander("Add New Announcement (Admin/Creator Only)"):
+            new_announcement = st.text_area("New Announcement", "Next meeting: Friday 3 PM")
             if st.button("Post Announcement"):
                 st.session_state.announcements.append({
-                    "text": new_ann,
+                    "text": new_announcement,
                     "time": datetime.now().isoformat()
                 })
-                save_app_data()
+                save_data()
                 st.success("Announcement posted!")
 
-def show_finance_tab():
-    st.subheader("Financial Management")
-    
+# ------------------------------
+# Tab 3: Financial Optimizing
+# ------------------------------
+with tab3:
+    st.subheader("Financial Progress")
     col1, col2 = st.columns(2)
     with col1:
-        current_funds = st.number_input("Current Funds", value=0.0, step=100.0)
+        current_fund_raised = st.number_input("Current Fund Raised", value=0.0, step=100.0)
     with col2:
-        target_funds = st.number_input("Fundraising Target", value=5000.0, step=500.0)
+        total_funds_needed = st.number_input("Total Funds Needed", value=10000.0, step=1000.0)
     
-    # Progress indicator
-    progress = min(100.0, (current_funds / target_funds) * 100) if target_funds > 0 else 0
-    st.progress(progress / 100)
-    st.caption(f"Progress: {progress:.1f}% of target")
+    progress = min(100.0, (current_fund_raised / total_funds_needed) * 100) if total_funds_needed > 0 else 0
+    st.slider("Current Progress", 0.0, 100.0, progress, disabled=True)
 
-    # Scheduled events
-    st.subheader("Scheduled Events")
-    st.dataframe(st.session_state.scheduled_events, use_container_width=True)
-    
-    if is_treasurer():
-        with st.expander("Add Scheduled Event (Treasurer/Admin Only)"):
-            event_name = st.text_input("Event Name")
-            funds_per = st.number_input("Funds Per Event", 0.0, step=50.0)
-            freq = st.number_input("Monthly Frequency", 1, 12)
-            
-            if st.button("Add Event"):
-                total = funds_per * freq * 12
-                new_event = pd.DataFrame([{
-                    'Event Name': event_name,
-                    'Funds Per Event': funds_per,
-                    'Frequency Per Month': freq,
-                    'Total Funds': total
-                }])
-                st.session_state.scheduled_events = pd.concat(
-                    [st.session_state.scheduled_events, new_event], ignore_index=True
-                )
-                save_app_data()
-                st.success("Event added!")
+    col_left, col_right = st.columns(2)
 
-    # Occasional events
-    st.subheader("Occasional Events")
-    st.dataframe(st.session_state.occasional_events, use_container_width=True)
-    
-    if is_treasurer():
-        with st.expander("Add Occasional Event (Treasurer/Admin Only)"):
-            event_name = st.text_input("Event Name (Occasional)")
-            funds_raised = st.number_input("Funds Raised", 0.0)
-            cost = st.number_input("Event Cost", 0.0)
-            staff = st.slider("Staff Needed (1-10)", 1, 10)
-            prep_time = st.number_input("Prep Time (Weeks)", 1, 8)
-            
-            if st.button("Add Occasional Event"):
-                rating = (funds_raised - cost) - (staff * 10) - (prep_time * 15)
-                new_event = pd.DataFrame([{
-                    'Event Name': event_name,
-                    'Total Funds Raised': funds_raised,
-                    'Cost': cost,
-                    'Staff Needed': staff,
-                    'Prep Time (Weeks)': prep_time,
-                    'Rating': rating
-                }])
-                st.session_state.occasional_events = pd.concat(
-                    [st.session_state.occasional_events, new_event], ignore_index=True
-                )
-                save_app_data()
-                st.success("Event added!")
+    with col_left:
+        st.subheader("Scheduled Events")
+        st.dataframe(st.session_state.scheduled_events, use_container_width=True)
 
-def show_attendance_tab():
-    st.subheader("Meeting Attendance")
+        if is_admin():
+            with st.expander("Add/Edit Scheduled Events (Admin/Creator Only)"):
+                event_name = st.text_input("Event Name", "Fundraiser")
+                funds_per_event = st.number_input("Funds Per Event", value=100.0)
+                freq_per_month = st.number_input("Frequency Per Month", value=1, step=1)
+                
+                if st.button("Add Scheduled Event"):
+                    total = funds_per_event * freq_per_month * 11
+                    new_event = pd.DataFrame({
+                        'Event Name': [event_name],
+                        'Funds Per Event': [funds_per_event],
+                        'Frequency Per Month': [freq_per_month],
+                        'Total Funds': [total]
+                    })
+                    st.session_state.scheduled_events = pd.concat(
+                        [st.session_state.scheduled_events, new_event], ignore_index=True
+                    )
+                    save_data()
+                    st.success("Event added!")
+
+            if not st.session_state.scheduled_events.empty:
+                col_select, col_delete = st.columns([3,1])
+                with col_select:
+                    event_to_delete = st.selectbox("Select Event to Delete", st.session_state.scheduled_events['Event Name'])
+                with col_delete:
+                    if st.button("Delete", type="secondary"):
+                        st.session_state.scheduled_events = st.session_state.scheduled_events[
+                            st.session_state.scheduled_events['Event Name'] != event_to_delete
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success("Event deleted!")
+            else:
+                st.info("No scheduled events to delete.")
+
+        total_scheduled = st.session_state.scheduled_events['Total Funds'].sum() if 'Total Funds' in st.session_state.scheduled_events.columns else 0.0
+        st.metric("Aggregate Funds (Scheduled)", f"${total_scheduled:.2f}")
+
+    with col_right:
+        st.subheader("Occasional Events")
+        st.dataframe(st.session_state.occasional_events, use_container_width=True)
+
+        if is_admin():
+            with st.expander("Add/Edit Occasional Events (Admin/Creator Only)"):
+                event_name = st.text_input("Event Name (Occasional)", "Charity Drive")
+                funds_raised = st.number_input("Total Funds Raised", value=500.0)
+                cost = st.number_input("Cost", value=100.0)
+                staff_many = st.selectbox("Staff Many? (1=Yes, 0=No)", [0, 1])
+                prep_time = st.selectbox("Prep Time <1 Week? (1=Yes, 0=No)", [0, 1])
+                
+                if st.button("Add Occasional Event"):
+                    rating = (funds_raised * 0.5) - (cost * 0.5) + (staff_many * 0.1 * 100) + (prep_time * 0.1 * 100)
+                    new_event = pd.DataFrame({
+                        'Event Name': [event_name],
+                        'Total Funds Raised': [funds_raised],
+                        'Cost': [cost],
+                        'Staff Many Or Not': [staff_many],
+                        'Preparation Time': [prep_time],
+                        'Rating': [rating]
+                    })
+                    st.session_state.occasional_events = pd.concat(
+                        [st.session_state.occasional_events, new_event], ignore_index=True
+                    )
+                    save_data()
+                    st.success("Event added!")
+
+            if not st.session_state.occasional_events.empty:
+                col_select, col_delete = st.columns([3,1])
+                with col_select:
+                    event_to_delete = st.selectbox("Select Occasional Event to Delete", st.session_state.occasional_events['Event Name'])
+                with col_delete:
+                    if st.button("Delete", type="secondary"):
+                        st.session_state.occasional_events = st.session_state.occasional_events[
+                            st.session_state.occasional_events['Event Name'] != event_to_delete
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success("Event deleted!")
+            else:
+                st.info("No occasional events to delete.")
+
+        if not st.session_state.occasional_events.empty:
+            if st.button("Sort by Rating (Descending)"):
+                st.session_state.occasional_events = st.session_state.occasional_events.sort_values(
+                    by='Rating', ascending=False
+                ).reset_index(drop=True)
+                save_data()
+                st.success("Sorted!")
+
+        if not st.session_state.occasional_events.empty:
+            total_target = st.number_input("Total Fundraising Target", value=5000.0)
+            if st.button("Optimize Allocation"):
+                net_profits = st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']
+                allocated_times = np.zeros(len(net_profits), dtype=int)
+                remaining = total_target
+
+                for i in range(len(net_profits)):
+                    if remaining >= net_profits[i] and allocated_times[i] < 3:
+                        allocated_times[i] = 1
+                        remaining -= net_profits[i]
+
+                while remaining > 0:
+                    available = np.where(allocated_times < 3)[0]
+                    if len(available) == 0:
+                        break
+                    best_idx = available[np.argmax(net_profits[available])]
+                    if net_profits[best_idx] <= remaining:
+                        allocated_times[best_idx] += 1
+                        remaining -= net_profits[best_idx]
+                    else:
+                        break
+
+                st.session_state.allocation_count += 1
+                col_name = f'Allocated Times (Target: ${total_target})'
+                st.session_state.occasional_events[col_name] = allocated_times
+                save_data()
+                st.success("Optimization complete!")
+
+        total_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum() if not st.session_state.occasional_events.empty else 0.0
+        st.metric("Aggregate Funds (Occasional)", f"${total_occasional:.2f}")
+
+# ------------------------------
+# Tab 4: Attendance
+# ------------------------------
+with tab4:
+    st.subheader("Attendance Records")
     
-    # Show summary
-    rates = calculate_attendance_rates()
-    st.dataframe(rates, use_container_width=True)
+    st.subheader("Attendance Summary")
+    attendance_rates = calculate_attendance_rates()
+    st.dataframe(attendance_rates, use_container_width=True)
     
-    # Admin controls
     if is_admin():
-        st.subheader("Detailed Records (Admin Only)")
-        edited = st.data_editor(
-            st.session_state.attendance,
-            column_config={"Name": st.column_config.TextColumn(disabled=True)},
-            use_container_width=True
-        )
+        st.subheader("Detailed Attendance (Admin/Creator Only)")
         
-        if not edited.equals(st.session_state.attendance):
-            st.session_state.attendance = edited
-            save_app_data()
-            st.success("Attendance updated!")
+        if len(st.session_state.meeting_names) == 0:
+            st.info("No meetings created yet. Add a meeting below.")
+        else:
+            st.write("Check the box if the person attended the meeting:")
+            edited_attendance = st.data_editor(
+                st.session_state.attendance,
+                column_config={"Name": st.column_config.TextColumn("Name", disabled=True)},
+                disabled=False,
+                use_container_width=True
+            )
+            
+            if not edited_attendance.equals(st.session_state.attendance):
+                st.session_state.attendance = edited_attendance
+                save_data()
+                st.success("Attendance records updated!")
         
-        # Manage meetings
-        st.subheader("Manage Meetings")
-        col_add, col_del = st.columns(2)
-        with col_add:
+        st.divider()
+        st.subheader("Manage Meetings (Admin/Creator Only)")
+        col_add_meeting, col_delete_meeting = st.columns(2)
+        
+        with col_add_meeting:
             if st.button("Add New Meeting"):
-                new_meeting = f"Meeting {len(st.session_state.meeting_names) + 1}"
-                st.session_state.meeting_names.append(new_meeting)
-                st.session_state.attendance[new_meeting] = False
-                save_app_data()
-                st.success(f"Added {new_meeting}")
+                add_new_meeting()
         
-        with col_del:
-            if st.session_state.meeting_names:
-                to_delete = st.selectbox("Delete Meeting", st.session_state.meeting_names)
-                if st.button("Delete Selected", type="secondary"):
-                    st.session_state.meeting_names.remove(to_delete)
-                    st.session_state.attendance = st.session_state.attendance.drop(columns=[to_delete])
-                    save_app_data()
-                    st.success(f"Deleted {to_delete}")
+        with col_delete_meeting:
+            if len(st.session_state.meeting_names) > 0:
+                meeting_to_delete = st.selectbox("Select Meeting to Delete", st.session_state.meeting_names)
+                if st.button("Delete Meeting", type="secondary"):
+                    delete_meeting(meeting_to_delete)
+            else:
+                st.info("No meetings to delete")
+        
+        st.divider()
+        st.subheader("Manage People (Admin/Creator Only)")
+        col_add_person, col_delete_person = st.columns(2)
+        
+        with col_add_person:
+            new_person_name = st.text_input("Add New Person to Attendance List")
+            if st.button("Add Person") and new_person_name:
+                add_new_person(new_person_name)
+        
+        with col_delete_person:
+            if not st.session_state.attendance.empty:
+                person_to_delete = st.selectbox("Select Person to Delete", st.session_state.attendance['Name'])
+                if st.button("Delete Person", type="secondary"):
+                    delete_person(person_to_delete)
+            else:
+                st.info("No people to delete")
 
-def show_credits_tab():
+# ------------------------------
+# Tab 5: Credit & Reward System
+# ------------------------------
+with tab5:
     col_credits, col_rewards = st.columns(2)
-    
+
     with col_credits:
         st.subheader("Student Credits")
+        update_leaderboard()
         st.dataframe(st.session_state.credit_data, use_container_width=True)
-        
-        if is_treasurer():
-            with st.expander("Manage Credits (Treasurer/Admin Only)"):
-                student = st.text_input("Student Name")
-                contribution = st.selectbox("Contribution Type", ["Event Help", "Fundraising", "Meeting"])
-                amount = st.number_input("Amount", 1)
+
+        if is_admin() or is_credit_manager():
+            with st.expander("Manage Student Credits (Credit Manager/Admin/Creator Only)"):
+                st.subheader("Add New Contribution")
+                student_name = st.text_input("Student Name", "Dave")
+                contribution_type = st.selectbox("Contribution Type", ["Money", "Hours", "Events"])
+                amount = st.number_input("Amount", value=10.0)
                 
                 if st.button("Add Credits"):
-                    credit_values = {"Event Help": 20, "Fundraising": 50, "Meeting": 10}
-                    credits = amount * credit_values[contribution]
-                    
-                    if student in st.session_state.credit_data['Name'].values:
+                    if contribution_type == "Money":
+                        credits = amount * 10
+                    elif contribution_type == "Hours":
+                        credits = amount * 5
+                    else:
+                        credits = amount * 25
+
+                    if student_name in st.session_state.credit_data['Name'].values:
                         st.session_state.credit_data.loc[
-                            st.session_state.credit_data['Name'] == student, 'Total_Credits'
+                            st.session_state.credit_data['Name'] == student_name, 'Total_Credits'
                         ] += credits
                     else:
-                        new_entry = pd.DataFrame([{
-                            'Name': student,
-                            'Total_Credits': credits,
-                            'RedeemedCredits': 0
-                        }])
+                        new_student = pd.DataFrame({
+                            'Name': [student_name],
+                            'Total_Credits': [credits],
+                            'RedeemedCredits': [0]
+                        })
                         st.session_state.credit_data = pd.concat(
-                            [st.session_state.credit_data, new_entry], ignore_index=True
+                            [st.session_state.credit_data, new_student], ignore_index=True
                         )
-                    save_app_data()
-                    st.success(f"Added {credits} credits to {student}")
-    
+                    save_data()
+                    st.success(f"Added {credits} credits to {student_name}!")
+                
+                st.divider()
+                st.subheader("Remove Student")
+                if not st.session_state.credit_data.empty:
+                    student_to_remove = st.selectbox("Select Student to Remove", st.session_state.credit_data['Name'])
+                    if st.button("Remove Student", type="secondary"):
+                        st.session_state.credit_data = st.session_state.credit_data[
+                            st.session_state.credit_data['Name'] != student_to_remove
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success(f"Removed {student_to_remove} from credit records")
+
     with col_rewards:
-        st.subheader("Rewards Catalog")
+        st.subheader("Available Rewards")
         st.dataframe(st.session_state.reward_data, use_container_width=True)
-        
+
         if is_admin():
-            with st.expander("Manage Rewards (Admin Only)"):
-                reward = st.text_input("Reward Name")
-                cost = st.number_input("Credit Cost", 10, step=10)
-                stock = st.number_input("Stock Quantity", 1)
+            with st.expander("Manage Rewards (Admin/Creator Only)"):
+                st.subheader("Add New Reward")
+                reward_name = st.text_input("Reward Name", "New Reward")
+                reward_cost = st.number_input("Reward Cost (Credits)", value=50)
+                reward_stock = st.number_input("Initial Stock", value=10, step=1)
                 
                 if st.button("Add Reward"):
-                    new_reward = pd.DataFrame([{
-                        'Reward': reward,
-                        'Cost': cost,
-                        'Stock': stock
-                    }])
+                    new_reward = pd.DataFrame({
+                        'Reward': [reward_name],
+                        'Cost': [reward_cost],
+                        'Stock': [reward_stock]
+                    })
                     st.session_state.reward_data = pd.concat(
                         [st.session_state.reward_data, new_reward], ignore_index=True
                     )
-                    save_app_data()
-                    st.success(f"Added {reward}")
-    
-    # Lucky draw
-    if is_admin():
-        st.subheader("Lucky Draw")
-        if not st.session_state.credit_data.empty:
-            student = st.selectbox("Select Student", st.session_state.credit_data['Name'])
-            if st.button("Spin Wheel") and not st.session_state.spinning:
-                st.session_state.spinning = True
-                student_data = st.session_state.credit_data[
-                    st.session_state.credit_data['Name'] == student
-                ].iloc[0]
+                    save_data()
+                    st.success(f"Added new reward: {reward_name}")
                 
-                if student_data['Total_Credits'] < 50:
-                    st.error("Need 50 credits to spin!")
-                    st.session_state.spinning = False
-                else:
-                    st.session_state.credit_data.loc[
-                        st.session_state.credit_data['Name'] == student, 'Total_Credits'
-                    ] -= 50
-                    
-                    # Animate spin
-                    for _ in range(10):
-                        rotation = np.random.uniform(0, 2*np.pi)
-                        fig = draw_wheel(rotation)
-                        st.pyplot(fig)
-                        time.sleep(0.1)
-                    
-                    # Final result
-                    final_idx = np.random.randint(0, len(st.session_state.wheel_prizes))
-                    final_rotation = 3*2*np.pi + (final_idx * (2*np.pi / len(st.session_state.wheel_prizes)))
-                    fig = draw_wheel(final_rotation)
-                    st.pyplot(fig)
-                    st.success(f"{student} won: {st.session_state.wheel_prizes[final_idx]}!")
-                    save_app_data()
-                    st.session_state.spinning = False
+                st.divider()
+                st.subheader("Redeem Reward")
+                student_name = st.selectbox("Select Student", st.session_state.credit_data['Name'] if not st.session_state.credit_data.empty else [], key="redeem_student")
+                reward_name = st.selectbox("Select Reward", st.session_state.reward_data['Reward'] if not st.session_state.reward_data.empty else [], key="redeem_reward")
+                
+                if st.button("Redeem") and student_name and reward_name:
+                    student = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_name].iloc[0]
+                    reward = st.session_state.reward_data[st.session_state.reward_data['Reward'] == reward_name].iloc[0]
 
-# ------------------------------
-# Main Application Flow
-# ------------------------------
-def main():
-    # Custom CSS
-    st.markdown("""
-    <style>
-    .welcome-header {
-        text-align: center;
-        padding: 2rem 0;
-    }
-    .app-header {
-        padding: 1rem 0;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+                    available_credits = student['Total_Credits'] - student['RedeemedCredits']
+                    if available_credits >= reward['Cost'] and reward['Stock'] > 0:
+                        st.session_state.credit_data.loc[
+                            st.session_state.credit_data['Name'] == student_name, 'RedeemedCredits'
+                        ] += reward['Cost']
+                        st.session_state.reward_data.loc[
+                            st.session_state.reward_data['Reward'] == reward_name, 'Stock'
+                        ] -= 1
+                        save_data()
+                        st.success(f"{student_name} redeemed {reward_name}!")
+                    else:
+                        st.error("Not enough credits or reward out of stock!")
+                
+                st.divider()
+                st.subheader("Remove Reward")
+                if not st.session_state.reward_data.empty:
+                    reward_to_remove = st.selectbox("Select Reward to Remove", st.session_state.reward_data['Reward'])
+                    if st.button("Remove Reward", type="secondary"):
+                        st.session_state.reward_data = st.session_state.reward_data[
+                            st.session_state.reward_data['Reward'] != reward_to_remove
+                        ].reset_index(drop=True)
+                        save_data()
+                        st.success(f"Removed reward: {reward_to_remove}")
 
-    # Check login status
-    if not st.session_state.user:
-        # Show welcome screen for non-logged-in users
-        st.markdown('<h1 class="welcome-header">Welcome to SCIS HQ US Stuco</h1>', unsafe_allow_html=True)
-        st.image("https://picsum.photos/800/400", use_column_width=True, 
-                 caption="Student Council Management System")
+    if is_admin():
+        st.subheader("Lucky Draw (Admin/Creator Only)")
+        col_wheel, col_result = st.columns(2)
         
-        # Show login form in sidebar - app stops here if not logged in
-        if not show_login_form():
-            return
+        with col_wheel:
+            if not st.session_state.credit_data.empty:
+                student_name = st.selectbox("Select Student for Lucky Draw", st.session_state.credit_data['Name'])
+                if st.button("Spin Wheel") and not st.session_state.spinning:
+                    st.session_state.spinning = True
+                    student = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_name].iloc[0]
+                    
+                    if student['Total_Credits'] < 50:
+                        st.error("Need at least 50 credits to spin!")
+                        st.session_state.spinning = False
+                    else:
+                        st.session_state.credit_data.loc[
+                            st.session_state.credit_data['Name'] == student_name, 'Total_Credits'
+                        ] -= 50
+
+                        st.write("Spinning...")
+                        time.sleep(1)
+                        
+                        prize_idx = np.random.randint(0, len(st.session_state.wheel_prizes))
+                        final_rotation = 3 * 360 + (prize_idx * (360 / len(st.session_state.wheel_prizes)))
+                        fig = draw_wheel(np.deg2rad(final_rotation))
+                        col_wheel.pyplot(fig)
+                        st.session_state.winner = st.session_state.wheel_prizes[prize_idx]
+                        save_data()
+                        st.session_state.spinning = False
+            else:
+                st.info("No students in credit data to select.")
+
+        with col_result:
+            if 'winner' in st.session_state:
+                st.success(f"Winner: {st.session_state.winner}!")
+    else:
+        st.subheader("Lucky Draw")
+        st.info("Lucky draw is only accessible to admins.")
+
+# ------------------------------
+# Tab 6: SCIS Specific AI
+# ------------------------------
+with tab6:
+    st.subheader("SCIS Specific AI")
+    st.info("This section is under development and will be available soon.")
+
+# ------------------------------
+# Tab 7: Money Transfer
+# ------------------------------
+with tab7:
+    st.subheader("Money Transfer Records")
     
-    # If logged in, show main app
-    st.markdown('<h1 class="app-header">SCIS Student Council Manager</h1>', unsafe_allow_html=True)
-    show_logout_option()
-    load_app_data()
-
-    # Main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Calendar", 
-        "Announcements", 
-        "Financials", 
-        "Attendance", 
-        "Credits & Rewards"
-    ])
-
-    with tab1:
-        show_calendar_tab()
-    with tab2:
-        show_announcements_tab()
-    with tab3:
-        show_finance_tab()
-    with tab4:
-        show_attendance_tab()
-    with tab5:
-        show_credits_tab()
-
-    # Creator-only settings
-    if is_creator():
-        with st.sidebar.expander("Creator Settings", expanded=False):
-            config = load_config()
-            new_signup = st.checkbox("Enable Signup", config.get("show_signup", False))
-            if new_signup != config.get("show_signup"):
-                config["show_signup"] = new_signup
-                save_config(config)
-                st.success(f"Signup {'enabled' if new_signup else 'disabled'}")
-
-if __name__ == "__main__":
-    main()
+    if is_admin():
+        st.subheader("Manage Records (Admin/Creator Only)")
+        if st.button("Load Money Data"):
+            if os.path.exists('Money.xlsm'):
+                try:
+                    st.session_state.money_data = pd.read_excel("Money.xlsm", engine='openpyxl')
+                    save_data()
+                    st.dataframe(st.session_state.money_data, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error loading Money.xlsm: {str(e)}")
+            else:
+                st.warning("Money.xlsm file not found. Showing empty table.")
+                st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
+                st.dataframe(st.session_state.money_data, use_container_width=True)
+        
+        if not st.session_state.money_data.empty:
+            if st.button("Clear Money Records", type="secondary"):
+                st.session_state.money_data = pd.DataFrame(columns=['Money', 'Time'])
+                save_data()
+                st.success("Money records cleared")
+    else:
+        if not st.session_state.money_data.empty:
+            st.dataframe(st.session_state.money_data, use_container_width=True)
+        else:
+            st.info("Money transfer records will be displayed here if available.")
