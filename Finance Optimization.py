@@ -144,8 +144,33 @@ def delete_user(username):
 # ------------------------------
 # Data Management
 # ------------------------------
+def load_student_council_members():
+    """Load student council members from Excel file"""
+    try:
+        # Try to read the Excel file
+        if os.path.exists("student_council_members.xlsx"):
+            members_df = pd.read_excel("student_council_members.xlsx", engine="openpyxl")
+            
+            # Check if we have a 'Name' column
+            if 'Name' not in members_df.columns:
+                st.warning("Excel file must contain a 'Name' column. Using default members.")
+                return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+                
+            # Extract names and return as list
+            return [str(name).strip() for name in members_df['Name'].dropna().unique()]
+        else:
+            st.warning("student_council_members.xlsx not found. Using default members.")
+            return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+            
+    except Exception as e:
+        st.warning(f"Error loading members from Excel: {str(e)}. Using defaults.")
+        return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+
 def safe_init_data():
     """Safely initialize all data structures"""
+    # Load members from Excel or use defaults
+    council_members = load_student_council_members()
+    
     st.session_state.scheduled_events = pd.DataFrame(columns=[
         'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
     ])
@@ -155,10 +180,11 @@ def safe_init_data():
         'Preparation Time', 'Rating'
     ])
 
+    # Use loaded members for credit data
     st.session_state.credit_data = pd.DataFrame({
-        'Name': ['Alice', 'Bob', 'Charlie', 'Diana'],
-        'Total_Credits': [200, 150, 300, 180],
-        'RedeemedCredits': [50, 0, 100, 30]
+        'Name': council_members,
+        'Total_Credits': [200 for _ in council_members],
+        'RedeemedCredits': [50 if i % 2 == 0 else 0 for i in range(len(council_members))]
     })
 
     st.session_state.reward_data = pd.DataFrame({
@@ -175,14 +201,15 @@ def safe_init_data():
 
     st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
     st.session_state.calendar_events = {}
-    st.session_state.announcements = []
+    st.session_state.announcements = []  # Now will store objects with title, text, etc.
 
+    # Use loaded members for attendance
     st.session_state.meeting_names = ["First Semester Meeting", "Event Planning Session"]
-    st.session_state.attendance = pd.DataFrame({
-        'Name': ['Alice', 'Bob', 'Charlie', 'Diana', 'Evan'],
-        'First Semester Meeting': [True, False, True, True, False],
-        'Event Planning Session': [True, True, True, False, True]
-    })
+    attendance_data = {'Name': council_members}
+    for meeting in st.session_state.meeting_names:
+        attendance_data[meeting] = [i % 3 != 0 for i in range(len(council_members))]  # Random attendance pattern
+        
+    st.session_state.attendance = pd.DataFrame(attendance_data)
 
 def load_data():
     """Load application data from file"""
@@ -783,59 +810,67 @@ def render_main_app():
     # Tab 2: Announcements
     # ------------------------------
     with tab2:
-        st.subheader("Announcements")
+    st.subheader("Announcements")
+    
+    # Display announcements with titles
+    if st.session_state.announcements:
+        # Sort by newest first
+        sorted_announcements = sorted(
+            st.session_state.announcements, 
+            key=lambda x: x["time"], 
+            reverse=True
+        )
         
-        # Display announcements
-        if st.session_state.announcements:
-            # Sort by newest first
-            sorted_announcements = sorted(
-                st.session_state.announcements, 
-                key=lambda x: x["time"], 
-                reverse=True
-            )
-            
-            for idx, ann in enumerate(sorted_announcements):
-                col_content, col_actions = st.columns([5, 1])
-                with col_content:
-                    st.info(f"**{datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}**\n\n{ann['text']}")
-                with col_actions:
-                    if is_admin():
-                        if st.button("Delete", key=f"del_ann_{idx}", type="secondary", use_container_width=True):
-                            st.session_state.announcements.pop(idx)
-                            success, msg = save_data()
-                            if success:
-                                st.success("Announcement deleted")
-                                st.rerun()
-                            else:
-                                st.error(msg)
-            
-                if idx < len(sorted_announcements) - 1:
-                    st.divider()
-        else:
-            st.info("No announcements yet. Check back later!")
-        
-        # Add new announcement (admin only)
-        if is_admin():
-            with st.expander("Add New Announcement (Admin Only)", expanded=False):
-                new_announcement = st.text_area(
-                    "New Announcement", 
-                    "Attention: Next student council meeting will be held on Friday at 3 PM.",
-                    height=100
-                )
-                if st.button("Post Announcement"):
-                    if new_announcement.strip():
-                        st.session_state.announcements.append({
-                            "text": new_announcement,
-                            "time": datetime.now().isoformat(),
-                            "author": st.session_state.user
-                        })
+        for idx, ann in enumerate(sorted_announcements):
+            col_content, col_actions = st.columns([5, 1])
+            with col_content:
+                # Display with title
+                st.info(f"**{ann['title']}**\n\n"
+                        f"*{datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}*\n\n"
+                        f"{ann['text']}")
+            with col_actions:
+                if is_admin():
+                    if st.button("Delete", key=f"del_ann_{idx}", type="secondary", use_container_width=True):
+                        st.session_state.announcements.pop(idx)
                         success, msg = save_data()
                         if success:
-                            st.success("Announcement posted successfully!")
+                            st.success("Announcement deleted")
+                            st.rerun()
                         else:
                             st.error(msg)
+        
+            if idx < len(sorted_announcements) - 1:
+                st.divider()
+    else:
+        st.info("No announcements yet. Check back later!")
+    
+    # Add new announcement with title (admin only)
+    if is_admin():
+        with st.expander("Add New Announcement (Admin Only)", expanded=False):
+            st.subheader("New Announcement")
+            ann_title = st.text_input("Announcement Title", "Upcoming Meeting")
+            new_announcement = st.text_area(
+                "Announcement Content", 
+                "Attention: Next student council meeting will be held on Friday at 3 PM.",
+                height=100
+            )
+            if st.button("Post Announcement"):
+                if not ann_title.strip():
+                    st.error("Please enter a title for the announcement")
+                elif not new_announcement.strip():
+                    st.error("Announcement content cannot be empty")
+                else:
+                    st.session_state.announcements.append({
+                        "title": ann_title,
+                        "text": new_announcement,
+                        "time": datetime.now().isoformat(),
+                        "author": st.session_state.user
+                    })
+                    success, msg = save_data()
+                    if success:
+                        st.success("Announcement posted successfully!")
                     else:
-                        st.error("Announcement cannot be empty")
+                        st.error(msg)
 
     # ------------------------------
     # Tab 3: Financial Planning
@@ -1429,4 +1464,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
