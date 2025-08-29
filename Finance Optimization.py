@@ -810,68 +810,67 @@ def render_main_app():
     # Tab 2: Announcements
     # ------------------------------
     with tab2:
-    st.subheader("Announcements")
-    
-    # Display announcements with titles
-    if st.session_state.announcements:
-        # Sort by newest first
-        sorted_announcements = sorted(
-            st.session_state.announcements, 
-            key=lambda x: x["time"], 
-            reverse=True
-        )
+        st.subheader("Announcements")
         
-        for idx, ann in enumerate(sorted_announcements):
-            col_content, col_actions = st.columns([5, 1])
-            with col_content:
-                # Display with title
-                st.info(f"**{ann['title']}**\n\n"
-                        f"*{datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}*\n\n"
-                        f"{ann['text']}")
-            with col_actions:
-                if is_admin():
-                    if st.button("Delete", key=f"del_ann_{idx}", type="secondary", use_container_width=True):
-                        st.session_state.announcements.pop(idx)
+        # Display announcements with titles
+        if st.session_state.announcements:
+            # Sort by newest first
+            sorted_announcements = sorted(
+                st.session_state.announcements, 
+                key=lambda x: x["time"], 
+                reverse=True
+            )
+            
+            for idx, ann in enumerate(sorted_announcements):
+                col_content, col_actions = st.columns([5, 1])
+                with col_content:
+                    # Display with title
+                    st.info(f"**{ann['title']}**\n\n"
+                            f"*{datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}*\n\n"
+                            f"{ann['text']}")
+                with col_actions:
+                    if is_admin():
+                        if st.button("Delete", key=f"del_ann_{idx}", type="secondary", use_container_width=True):
+                            st.session_state.announcements.pop(idx)
+                            success, msg = save_data()
+                            if success:
+                                st.success("Announcement deleted")
+                                st.rerun()
+                            else:
+                                st.error(msg)
+            
+                if idx < len(sorted_announcements) - 1:
+                    st.divider()
+        else:
+            st.info("No announcements yet. Check back later!")
+        
+        # Add new announcement with title (admin only)
+        if is_admin():
+            with st.expander("Add New Announcement (Admin Only)", expanded=False):
+                st.subheader("New Announcement")
+                ann_title = st.text_input("Announcement Title", "Upcoming Meeting")
+                new_announcement = st.text_area(
+                    "Announcement Content", 
+                    "Attention: Next student council meeting will be held on Friday at 3 PM.",
+                    height=100
+                )
+                if st.button("Post Announcement"):
+                    if not ann_title.strip():
+                        st.error("Please enter a title for the announcement")
+                    elif not new_announcement.strip():
+                        st.error("Announcement content cannot be empty")
+                    else:
+                        st.session_state.announcements.append({
+                            "title": ann_title,
+                            "text": new_announcement,
+                            "time": datetime.now().isoformat(),
+                            "author": st.session_state.user
+                        })
                         success, msg = save_data()
                         if success:
-                            st.success("Announcement deleted")
-                            st.rerun()
+                            st.success("Announcement posted successfully!")
                         else:
                             st.error(msg)
-        
-            if idx < len(sorted_announcements) - 1:
-                st.divider()
-    else:
-        st.info("No announcements yet. Check back later!")
-    
-    # Add new announcement with title (admin only)
-    if is_admin():
-        with st.expander("Add New Announcement (Admin Only)", expanded=False):
-            st.subheader("New Announcement")
-            ann_title = st.text_input("Announcement Title", "Upcoming Meeting")
-            new_announcement = st.text_area(
-                "Announcement Content", 
-                "Attention: Next student council meeting will be held on Friday at 3 PM.",
-                height=100
-            )
-            if st.button("Post Announcement"):
-                if not ann_title.strip():
-                    st.error("Please enter a title for the announcement")
-                elif not new_announcement.strip():
-                    st.error("Announcement content cannot be empty")
-                else:
-                    st.session_state.announcements.append({
-                        "title": ann_title,
-                        "text": new_announcement,
-                        "time": datetime.now().isoformat(),
-                        "author": st.session_state.user
-                    })
-                    success, msg = save_data()
-                    if success:
-                        st.success("Announcement posted successfully!")
-                    else:
-                        st.error(msg)
-
     # ------------------------------
     # Tab 3: Financial Planning
     # ------------------------------
@@ -1464,5 +1463,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
