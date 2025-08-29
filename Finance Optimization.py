@@ -395,17 +395,55 @@ def render_role_badge():
     display_role = role if role in role_styles else "unknown"
     return f'<span class="role-badge" style="{role_styles[display_role]}">{display_role.capitalize()}</span>'
 
+# Find and replace the render_calendar() function with this version
 def render_calendar():
-    """Render monthly calendar view"""
-    today = date.today()
-    grid, month, year = get_month_grid()
-    st.subheader(f"{datetime(year, month, 1).strftime('%B %Y')}")
+    """Render monthly calendar view with navigation buttons"""
+    # Initialize session state for current calendar month if not exists
+    if "current_calendar_month" not in st.session_state:
+        today = date.today()
+        st.session_state.current_calendar_month = (today.year, today.month)
     
+    # Get current year and month from session state
+    current_year, current_month = st.session_state.current_calendar_month
+    
+    # Create navigation buttons
+    col_prev, col_title, col_next = st.columns([1, 3, 1])
+    with col_prev:
+        if st.button("◀ Previous", key="prev_month"):
+            # Calculate previous month
+            new_month = current_month - 1
+            new_year = current_year
+            if new_month < 1:
+                new_month = 12
+                new_year -= 1
+            st.session_state.current_calendar_month = (new_year, new_month)
+            st.rerun()  # Refresh to show new month
+    
+    with col_title:
+        # Display current month and year
+        st.subheader(f"{datetime(current_year, current_month, 1).strftime('%B %Y')}")
+    
+    with col_next:
+        if st.button("Next ▶", key="next_month"):
+            # Calculate next month
+            new_month = current_month + 1
+            new_year = current_year
+            if new_month > 12:
+                new_month = 1
+                new_year += 1
+            st.session_state.current_calendar_month = (new_year, new_month)
+            st.rerun()  # Refresh to show new month
+    
+    # Generate calendar grid for current month
+    grid, month, year = get_month_grid(current_year, current_month)
+    
+    # Display weekday headers
     headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     header_cols = st.columns(7)
     for col, header in zip(header_cols, headers):
         col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
     
+    # Display calendar days
     for week in grid:
         day_cols = st.columns(7)
         for col, dt in zip(day_cols, week):
@@ -415,7 +453,7 @@ def render_calendar():
             css_class = "calendar-day "
             if dt.month != month:
                 css_class += "other-month "
-            elif dt == today:
+            elif dt == date.today():
                 css_class += "today "
             
             plan_text = st.session_state.calendar_events.get(date_str, "")
@@ -426,11 +464,9 @@ def render_calendar():
                 unsafe_allow_html=True
             )
 
-def get_month_grid():
-    """Generate grid of dates for current month calendar"""
-    today = date.today()
-    year, month = today.year, today.month
-    
+# Also update the get_month_grid() function to accept year and month parameters
+def get_month_grid(year, month):
+    """Generate grid of dates for specified month calendar"""
     first_day = date(year, month, 1)
     last_day = (date(year, month + 1, 1) - timedelta(days=1)) if month < 12 else date(year, 12, 31)
     first_day_weekday = first_day.isoweekday() % 7  # Convert to 0=Monday
@@ -1393,3 +1429,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
