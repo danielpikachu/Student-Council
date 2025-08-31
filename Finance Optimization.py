@@ -277,19 +277,67 @@ def delete_user(username):
 # Data Management (Preserves All App Data)
 # ------------------------------
 def load_student_council_members():
-    """Load student council members from Excel file"""
+    """Load student council members from Excel file with error handling and validation"""
     try:
-        if os.path.exists("student_council_members.xlsx"):
-            members_df = pd.read_excel("student_council_members.xlsx", engine="openpyxl")
-            if 'Name' not in members_df.columns:
-                st.warning("Excel file must contain a 'Name' column. Using default members.")
-                return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
-            return [str(name).strip() for name in members_df['Name'].dropna().unique()]
-        else:
-            st.warning("student_council_members.xlsx not found. Using default members.")
+        # Check if file exists
+        file_path = "student_council_members.xlsx"
+        if not os.path.exists(file_path):
+            st.warning(f"Excel file not found at: {os.path.abspath(file_path)}")
+            st.info("Please ensure the file is named 'student_council_members.xlsx' and is in the same folder as the app.")
             return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+
+        # Try to read the Excel file
+        try:
+            members_df = pd.read_excel(file_path, engine="openpyxl")
+        except Exception as e:
+            st.error(f"Error reading Excel file: {str(e)}")
+            st.info("Make sure the file is not open in another program and is in .xlsx format.")
+            return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+
+        # Find the name column (case-insensitive search)
+        name_columns = [col for col in members_df.columns if str(col).strip().lower() == "name"]
+        
+        if not name_columns:
+            st.warning("No column named 'Name' found in Excel file (case-insensitive search).")
+            st.info(f"Found columns: {', '.join(map(str, members_df.columns))}")
+            return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+        
+        name_column = name_columns[0]
+
+        # Clean and validate names
+        all_names = []
+        skipped = 0
+        
+        for value in members_df[name_column]:
+            # Skip empty values
+            if pd.isna(value):
+                skipped += 1
+                continue
+                
+            # Convert to string and clean
+            name = str(value).strip()
+            
+            # Skip empty strings after cleaning
+            if not name:
+                skipped += 1
+                continue
+                
+            all_names.append(name)
+
+        # Show import statistics
+        st.success(f"Successfully imported {len(all_names)} members from Excel file.")
+        if skipped > 0:
+            st.info(f"Skipped {skipped} empty or invalid entries.")
+        
+        # Return unique names (in case of duplicates)
+        unique_names = list(pd.unique(all_names))
+        if len(unique_names) < len(all_names):
+            st.info(f"Removed {len(all_names) - len(unique_names)} duplicate entries.")
+            
+        return unique_names
+
     except Exception as e:
-        st.warning(f"Error loading members from Excel: {str(e)}. Using defaults.")
+        st.error(f"Unexpected error loading members: {str(e)}")
         return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
 
 def safe_init_data():
@@ -1626,3 +1674,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
