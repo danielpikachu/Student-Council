@@ -277,67 +277,86 @@ def delete_user(username):
 # Data Management (Preserves All App Data)
 # ------------------------------
 def load_student_council_members():
-    """Load student council members from Excel file with error handling and validation"""
+    """Load student council members with detailed logging to identify missing entries"""
     try:
-        # Check if file exists
         file_path = "student_council_members.xlsx"
+        import_log = []  # To track exactly what's happening
+        import_log.append(f"Looking for Excel file at: {os.path.abspath(file_path)}")
+
         if not os.path.exists(file_path):
-            st.warning(f"Excel file not found at: {os.path.abspath(file_path)}")
-            st.info("Please ensure the file is named 'student_council_members.xlsx' and is in the same folder as the app.")
+            st.warning("\n".join(import_log))
+            st.error("File not found")
             return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
 
-        # Try to read the Excel file
+        # Try to read the file with all sheets
         try:
-            members_df = pd.read_excel(file_path, engine="openpyxl")
+            # Get all sheet names to check if data is on another sheet
+            excel_file = pd.ExcelFile(file_path, engine="openpyxl")
+            import_log.append(f"Found Excel file with sheets: {excel_file.sheet_names}")
+            
+            # Try first sheet (default)
+            members_df = pd.read_excel(excel_file, sheet_name=0)
+            import_log.append(f"Reading data from sheet: {excel_file.sheet_names[0]}")
+            import_log.append(f"Total rows in sheet: {len(members_df)}")
         except Exception as e:
-            st.error(f"Error reading Excel file: {str(e)}")
-            st.info("Make sure the file is not open in another program and is in .xlsx format.")
+            import_log.append(f"Error reading Excel: {str(e)}")
+            st.warning("\n".join(import_log))
             return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
 
-        # Find the name column (case-insensitive search)
+        # Find name column (case-insensitive)
         name_columns = [col for col in members_df.columns if str(col).strip().lower() == "name"]
+        import_log.append(f"Found potential name columns: {name_columns}")
         
         if not name_columns:
-            st.warning("No column named 'Name' found in Excel file (case-insensitive search).")
-            st.info(f"Found columns: {', '.join(map(str, members_df.columns))}")
+            import_log.append(f"Available columns: {list(members_df.columns)}")
+            st.warning("\n".join(import_log))
+            st.error("No column containing 'name' found")
             return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
         
         name_column = name_columns[0]
+        import_log.append(f"Using name column: {name_column}")
 
-        # Clean and validate names
+        # Detailed row-by-row processing
         all_names = []
-        skipped = 0
-        
-        for value in members_df[name_column]:
-            # Skip empty values
-            if pd.isna(value):
-                skipped += 1
-                continue
+        for row_idx, value in enumerate(members_df[name_column], start=2):  # Rows start at 2 in Excel
+            row_num = row_idx  # Excel rows are 1-indexed
+            try:
+                if pd.isna(value):
+                    import_log.append(f"Row {row_num}: Skipped - empty value")
+                    continue
                 
-            # Convert to string and clean
-            name = str(value).strip()
-            
-            # Skip empty strings after cleaning
-            if not name:
-                skipped += 1
-                continue
+                name = str(value).strip()
+                if not name:
+                    import_log.append(f"Row {row_num}: Skipped - blank after cleaning")
+                    continue
                 
-            all_names.append(name)
+                # Check for special characters that might cause issues
+                if any(c in name for c in ['\n', '\r', '\t']):
+                    name = name.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                    import_log.append(f"Row {row_num}: Cleaned special characters - '{name}'")
+                
+                all_names.append(name)
+                import_log.append(f"Row {row_num}: Imported - '{name}'")
+            except Exception as e:
+                import_log.append(f"Row {row_num}: Error processing - {str(e)}")
 
-        # Show import statistics
-        st.success(f"Successfully imported {len(all_names)} members from Excel file.")
-        if skipped > 0:
-            st.info(f"Skipped {skipped} empty or invalid entries.")
+        # Show results with details
+        st.success(f"Successfully imported {len(all_names)} members")
         
-        # Return unique names (in case of duplicates)
-        unique_names = list(pd.unique(all_names))
-        if len(unique_names) < len(all_names):
-            st.info(f"Removed {len(all_names) - len(unique_names)} duplicate entries.")
-            
-        return unique_names
+        # Show the log in an expandable section
+        with st.expander("View Import Details (click to expand)", expanded=False):
+            st.text("\n".join(import_log))
+        
+        # Check for hidden sheets that might contain the other members
+        if len(all_names) < 47 and len(excel_file.sheet_names) > 1:
+            st.info(f"Note: The Excel file has {len(excel_file.sheet_names)} sheets. "
+                   f"We only read the first one ('{excel_file.sheet_names[0]}'). "
+                   "If your members are on other sheets, they won't be imported.")
+
+        return list(pd.unique(all_names))  # Remove duplicates
 
     except Exception as e:
-        st.error(f"Unexpected error loading members: {str(e)}")
+        st.error(f"Import error: {str(e)}")
         return ["Alice", "Bob", "Charlie", "Diana", "Evan"]
 
 def safe_init_data():
@@ -1674,4 +1693,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
