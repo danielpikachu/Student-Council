@@ -1377,17 +1377,18 @@ def render_main_app():
         col_credits, col_rewards = st.columns(2)
     
         # ------------------------------
-        # Left Column: Credit Management (Fixed Syntax Error)
+        # Left Column: Credit Management (Simplified)
         # ------------------------------
         with col_credits:
             st.subheader("Student Credits")
+            # Show current credit data (sorted by name for easier finding)
             st.dataframe(
                 st.session_state.credit_data.sort_values("Name").reset_index(drop=True),
                 use_container_width=True
             )
     
             # ------------------------------
-            # 1. Excel Import (Unchanged)
+            # 1. Excel Import (Keep for bulk adding students)
             # ------------------------------
             if is_admin() or is_credit_manager():
                 st.divider()
@@ -1404,45 +1405,50 @@ def render_main_app():
                         st.error(import_msg)
     
             # ------------------------------
-            # 2. Simplified Credit Adjustment (FIXED: No Misplaced 'continue')
+            # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
             # ------------------------------
             if is_admin() or is_credit_manager():
                 st.divider()
                 st.subheader("Adjust Student Credits")
                 
+                # Step 1: Select student (dropdown, no typing)
                 if not st.session_state.credit_data.empty:
+                    # Sort students alphabetically for easier selection
                     sorted_students = sorted(st.session_state.credit_data["Name"].tolist())
                     selected_student = st.selectbox(
                         "Choose a Student",
                         options=sorted_students,
-                        key="Credit_student_select"
+                        key="credit_student_select"
                     )
     
+                    # Step 2: Choose action (Add or Remove)
                     action = st.radio(
                         "Action",
                         options=["Add Credits", "Remove Credits"],
-                        key="Credit_action"
+                        key="credit_action"
                     )
     
+                    # Step 3: Enter specific credit amount
                     credit_amount = st.number_input(
                         "Credit Amount",
-                        min_value=1,
+                        min_value=1,  # Prevent 0 or negative amounts by default
                         value=10,
                         step=1,
-                        key="Credit_amount"
+                        key="credit_amount"
                     )
     
-                    if st.button("Apply Change", type="secondary", key="Credit_apply"):
+                    # Step 4: Confirm and apply change
+                    if st.button("Apply Change", type="secondary", key="credit_apply"):
+                        # Create backup first (safety first)
                         backup_data()
+                        
+                        # Get current credit balance
                         current_credits = st.session_state.credit_data.loc[
                             st.session_state.credit_data["Name"] == selected_student,
                             "Total_Credits"
                         ].iloc[0]
     
-                        # ------------------------------
-                        # FIX: Removed 'continue' (was outside loop)
-                        # Use conditional logic to handle valid/invalid cases
-                        # ------------------------------
+                        # Update credits based on action
                         if action == "Add Credits":
                             new_credits = current_credits + credit_amount
                             st.session_state.credit_data.loc[
@@ -1450,9 +1456,9 @@ def render_main_app():
                                 "Total_Credits"
                             ] = new_credits
                             success_msg = f"Added {credit_amount} credits to {selected_student} (New total: {new_credits})"
-                            # Proceed to save (valid case)
                         
                         else:  # Remove Credits
+                            # Prevent negative credits
                             if current_credits >= credit_amount:
                                 new_credits = current_credits - credit_amount
                                 st.session_state.credit_data.loc[
@@ -1460,27 +1466,26 @@ def render_main_app():
                                     "Total_Credits"
                                 ] = new_credits
                                 success_msg = f"Removed {credit_amount} credits from {selected_student} (New total: {new_credits})"
-                                # Proceed to save (valid case)
                             else:
-                                # Invalid case: Show error and DO NOT save
                                 st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
-                                # Skip saving by using 'return-like' logic (no 'continue' needed)
-                                success_msg = None  # Mark as invalid
+                                # Skip saving if removal would cause negative credits
+                                pass
     
-                        # Only save if the action was valid (success_msg exists)
-                        if success_msg:
-                            save_success, save_msg = save_data()
-                            if save_success:
-                                st.success(success_msg)
-                                st.rerun()
-                            else:
-                                st.error(f"Failed to save changes: {save_msg}")
+                        # Save changes to file
+                        save_success, save_msg = save_data()
+                        if save_success:
+                            st.success(success_msg)
+                            # Refresh to show updated credit table
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to save changes: {save_msg}")
     
                 else:
+                    # No students in credit system yet
                     st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
     
                 # ------------------------------
-                # 3. Remove Entire Student (Unchanged)
+                # 3. Remove Entire Student (Keep, with dropdown)
                 # ------------------------------
                 st.divider()
                 st.subheader("Remove Student from Credit System")
@@ -1493,7 +1498,7 @@ def render_main_app():
                     )
     
                     if st.button("Remove Student", type="error", key="student_remove"):
-                        backup_data()
+                        backup_data()  # Backup before deletion
                         st.session_state.credit_data = st.session_state.credit_data[
                             st.session_state.credit_data["Name"] != student_to_remove
                         ].reset_index(drop=True)
@@ -1508,7 +1513,7 @@ def render_main_app():
                     st.info("No students to remove—credit system is empty.")
     
         # ------------------------------
-        # Right Column: Rewards (Unchanged)
+        # Right Column: Rewards (Keep Existing Functionality)
         # ------------------------------
         with col_rewards:
             st.subheader("Available Rewards")
@@ -1542,11 +1547,13 @@ def render_main_app():
                     st.divider()
                     st.subheader("Process Reward Redemption")
                     if not st.session_state.credit_data.empty and not st.session_state.reward_data.empty:
+                        # Student selection (dropdown, matches credit adjustment)
                         redeem_student = st.selectbox(
                             "Student Redeeming",
                             options=sorted(st.session_state.credit_data["Name"].tolist()),
                             key="redeem_student_select"
                         )
+                        # Reward selection
                         redeem_reward = st.selectbox(
                             "Reward",
                             options=st.session_state.reward_data["Reward"].tolist(),
@@ -1555,6 +1562,7 @@ def render_main_app():
                         
                         if st.button("Confirm Redemption", key="confirm_redeem"):
                             backup_data()
+                            # Get student's available credits
                             student_credits = st.session_state.credit_data.loc[
                                 st.session_state.credit_data["Name"] == redeem_student,
                                 "Total_Credits"
@@ -1565,6 +1573,7 @@ def render_main_app():
                             ].iloc[0]
                             available_credits = student_credits - student_redeemed
     
+                            # Get reward cost and stock
                             reward_cost = st.session_state.reward_data.loc[
                                 st.session_state.reward_data["Reward"] == redeem_reward,
                                 "Cost"
@@ -1574,11 +1583,14 @@ def render_main_app():
                                 "Stock"
                             ].iloc[0]
     
+                            # Validate redemption
                             if available_credits >= reward_cost and reward_stock > 0:
+                                # Update student's redeemed credits
                                 st.session_state.credit_data.loc[
                                     st.session_state.credit_data["Name"] == redeem_student,
                                     "RedeemedCredits"
                                 ] += reward_cost
+                                # Update reward stock
                                 st.session_state.reward_data.loc[
                                     st.session_state.reward_data["Reward"] == redeem_reward,
                                     "Stock"
@@ -1616,7 +1628,7 @@ def render_main_app():
                                 st.error(msg)
     
         # ------------------------------
-        # Lucky Draw (Unchanged)
+        # Lucky Draw (Keep Existing, with dropdown student selection)
         # ------------------------------
         st.divider()
         st.subheader("Lucky Draw (50 Credits per Spin)")
@@ -1625,6 +1637,7 @@ def render_main_app():
             
             with col_wheel:
                 if not st.session_state.credit_data.empty:
+                    # Dropdown for student selection (matches credit system)
                     draw_student = st.selectbox(
                         "Select Student for Spin",
                         options=sorted(st.session_state.credit_data["Name"].tolist()),
@@ -1633,6 +1646,8 @@ def render_main_app():
                     
                     if st.button("Spin Lucky Wheel", key="spin_wheel") and not st.session_state.get("spinning", False):
                         st.session_state["spinning"] = True
+                        
+                        # Check if student has enough credits
                         student_credits = st.session_state.credit_data.loc[
                             st.session_state.credit_data["Name"] == draw_student,
                             "Total_Credits"
@@ -1642,20 +1657,23 @@ def render_main_app():
                             st.error(f"Cannot spin! {draw_student} only has {student_credits} credits (needs 50).")
                             st.session_state["spinning"] = False
                         else:
+                            # Deduct spin cost first
                             backup_data()
                             st.session_state.credit_data.loc[
                                 st.session_state.credit_data["Name"] == draw_student,
                                 "Total_Credits"
                             ] -= 50
                             
+                            # Simulate wheel spin
                             time.sleep(1)
                             prize_idx = random.randint(0, len(st.session_state.wheel_prizes) - 1)
                             final_rotation = 3 * 360 + (prize_idx * (360 / len(st.session_state.wheel_prizes)))
                             fig = draw_wheel(np.deg2rad(final_rotation))
                             st.pyplot(fig)
                             
+                            # Record and display prize
                             st.session_state["winner_prize"] = st.session_state.wheel_prizes[prize_idx]
-                            save_data()
+                            save_data()  # Save credit deduction
                             st.session_state["spinning"] = False
                 else:
                     st.info("No students in credit system—add students first to use Lucky Draw.")
@@ -1664,6 +1682,7 @@ def render_main_app():
                 if "winner_prize" in st.session_state and st.session_state["winner_prize"]:
                     st.success(f"🎉 {draw_student} won: {st.session_state['winner_prize']}")
                     
+                    # Add credit prizes back to student
                     if "Credits" in st.session_state["winner_prize"]:
                         try:
                             prize_amount = int(st.session_state["winner_prize"].split()[0])
@@ -1859,6 +1878,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
