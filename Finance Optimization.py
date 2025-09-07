@@ -1392,7 +1392,7 @@ def render_main_app():
             # ------------------------------
             if is_admin() or is_credit_manager():
                 st.divider()
-                st.subheader("Bulk Import Students (Excel)")
+                st.subheader("Import Students (Excel)")
                 st.caption("Uses 'student_council_members.xlsx' (all get 0 default credits)")
                 st.caption("⚠️ Replaces existing credit members (backup created automatically)")
                 
@@ -1878,6 +1878,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
