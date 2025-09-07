@@ -1469,7 +1469,7 @@ def render_main_app():
                             else:
                                 st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
                                 # Skip saving if removal would cause negative credits
-                                pass
+                                continue
     
                         # Save changes to file
                         save_success, save_msg = save_data()
@@ -1878,6 +1878,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
