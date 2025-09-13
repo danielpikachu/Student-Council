@@ -715,25 +715,48 @@ def get_month_grid(year, month):
         grid.append(week)
     
     return grid, month, year
-
+    
 def calculate_attendance_rates():
-    """Calculate attendance rates for each member"""
-    if len(st.session_state.meeting_names) == 0:
-        return pd.DataFrame({
-            'Name': st.session_state.attendance['Name'],
-            'Attendance Rate (%)': [0.0 for _ in range(len(st.session_state.attendance))]
-        })
-    
-    rates = []
-    for _, row in st.session_state.attendance.iterrows():
-        attended = sum(row[meeting] for meeting in st.session_state.meeting_names if pd.notna(row[meeting]))
-        rate = (attended / len(st.session_state.meeting_names)) * 100 if len(st.session_state.meeting_names) > 0 else 0
-        rates.append(round(rate, 1))
-    
-    return pd.DataFrame({
-        'Name': st.session_state.attendance['Name'],
-        'Attendance Rate (%)': rates
-    })
+        """Safely calculate attendance rates with error handling for missing meetings"""
+        try:
+            # Get valid meeting names that actually exist in the attendance DataFrame
+            valid_meetings = [
+                meeting for meeting in st.session_state.meeting_names 
+                if meeting in st.session_state.attendance.columns
+            ]
+            
+            # If no valid meetings, return empty dict to avoid errors
+            if not valid_meetings:
+                return {}
+            
+            # Calculate rates using only valid meetings
+            attendance_rates = {}
+            for _, row in st.session_state.attendance.iterrows():
+                name = row['Name']
+                attended = sum(row[meeting] for meeting in valid_meetings if pd.notna(row[meeting]))
+                total = len(valid_meetings)
+                attendance_rates[name] = (attended / total) * 100 if total > 0 else 0
+            
+            return attendance_rates
+        except Exception as e:
+            # If any error occurs, return empty dict to prevent app crash
+            st.warning(f"Attendance calculation temporarily disabled: {str(e)}")
+            return {}
+
+def reset_attendance_data():
+        """Reset attendance data to fix corruption"""
+        backup_data()  # Save backup before resetting
+        council_members = load_student_council_members()
+        st.session_state.meeting_names = ["First Semester Meeting", "Event Planning Session"]
+        
+        # Rebuild attendance DataFrame with valid structure
+        attendance_data = {'Name': council_members}
+        for meeting in st.session_state.meeting_names:
+            attendance_data[meeting] = [False for _ in range(len(council_members))]
+        
+        st.session_state.attendance = pd.DataFrame(attendance_data)
+        save_data()
+        st.success("Attendance data reset successfully")
 
 def draw_wheel(rotation_angle=0):
     """Draw the lucky draw wheel"""
@@ -1310,6 +1333,9 @@ def render_main_app():
     # ------------------------------
     with tab4:
         st.subheader("Attendance Tracking")
+        if is_admin() and st.button("🔄 Reset Attendance Data", type="warning"):
+            reset_attendance_data()
+            st.rerun()
         
         # Summary statistics
         st.subheader("Attendance Summary")
@@ -1878,6 +1904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
