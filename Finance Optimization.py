@@ -1642,7 +1642,7 @@ def render_main_app():
                             options=st.session_state.reward_data["Reward"].tolist(),
                             key="remove_reward_select"
                         )
-                        if st.button("Remove Reward", type="error", key="reward_remove"):
+                        if st.button("Remove Reward", type="secondary", key="reward_remove"):
                             backup_data()
                             st.session_state.reward_data = st.session_state.reward_data[
                                 st.session_state.reward_data["Reward"] != reward_to_remove
@@ -1904,6 +1904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
