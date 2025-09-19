@@ -1333,7 +1333,7 @@ def render_main_app():
     # ------------------------------
     with tab4:
         st.subheader("Attendance Tracking")
-        if is_admin() and st.button("🔄 Reset Attendance Data", type="warning"):
+        if is_admin() and st.button("🔄 Reset Attendance Data", type="secondary"):
             reset_attendance_data()
             st.rerun()
         
@@ -1904,6 +1904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
