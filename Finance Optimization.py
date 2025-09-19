@@ -1523,7 +1523,7 @@ def render_main_app():
                         key="remove_student_select"
                     )
     
-                    if st.button("Remove Student", type="error", key="student_remove"):
+                    if st.button("Remove Student", type="secondary", key="student_remove"):
                         backup_data()  # Backup before deletion
                         st.session_state.credit_data = st.session_state.credit_data[
                             st.session_state.credit_data["Name"] != student_to_remove
@@ -1904,6 +1904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
