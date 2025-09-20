@@ -1003,7 +1003,36 @@ def render_main_app():
         st.subheader(f"Logged in as: {st.session_state.user}")
         st.markdown(render_role_badge(), unsafe_allow_html=True)
 
-        # Add this new section HERE (before logout button)
+        if is_creator():
+            st.divider()
+            st.subheader("📂 View stuco_data Files")
+            
+            # Path to stuco_data (matches your code)
+            stuco_path = "stuco_data"
+            
+            # Check if stuco_data exists
+            if os.path.exists(stuco_path):
+                # List files in stuco_data (main files: users.json, app_data.json)
+                main_files = os.listdir(stuco_path)
+                st.info("Main stuco_data files:")
+                for file in main_files:
+                    file_path = os.path.join(stuco_path, file)
+                    # Show file name + size
+                    file_size = os.path.getsize(file_path) / 1024  # Convert to KB
+                    st.text(f"- {file} ({round(file_size, 2)} KB)")
+                
+                # List backup files (in stuco_data/backups)
+                backup_path = os.path.join(stuco_path, "backups")
+                if os.path.exists(backup_path):
+                    backup_files = os.listdir(backup_path)
+                    st.info(f"\nBackup files ({len(backup_files)} total):")
+                    # Show newest backups first
+                    backup_files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_path, x)), reverse=True)
+                    for file in backup_files[:10]:  # Show top 10 newest
+                        st.text(f"- {file}")
+            else:
+                st.warning("stuco_data folder not found (app will create it when it runs)")
+
         if is_creator():
             st.divider()
             st.subheader("Restore Backup")
@@ -2016,6 +2045,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
