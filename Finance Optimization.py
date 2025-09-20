@@ -897,6 +897,24 @@ def delete_person(name):
             st.error(msg)
     else:
         st.error(f"Person {name} not found")
+        
+def mark_all_present(meeting_name):
+    """Mark all students as present for a specific meeting with backup"""
+    if not meeting_name or meeting_name not in st.session_state.attendance.columns:
+        return False, "Invalid meeting name"
+        
+    # Create backup before making changes
+    backup_data()
+        
+    # Set all students to present for this meeting
+    st.session_state.attendance[meeting_name] = True
+        
+    # Save changes
+    success, msg = save_data()
+    if success:
+        return True, f"All students marked as present for {meeting_name}"
+    else:
+        return False, f"Failed to save changes: {msg}"
 
 # ------------------------------
 # Excel Import Function for Credit and Reward System (Only for Credit)
@@ -1389,69 +1407,106 @@ def render_main_app():
     # Tab 4: Attendance
     # ------------------------------
     with tab4:
-        st.subheader("Attendance Tracking")
-        if is_admin() and st.button("🔄 Reset Attendance Data", type="secondary"):
-            reset_attendance_data()
-            st.rerun()
-        
-        # Summary statistics
-        st.subheader("Attendance Summary")
-        attendance_rates = calculate_attendance_rates()
-        st.dataframe(attendance_rates, use_container_width=True)
-        
-        # Detailed view for admins
-        if is_admin():
-            st.subheader("Detailed Attendance Records")
+            st.subheader("Attendance Tracking")
+            if is_admin() and st.button("Reset Attendance Data", type="secondary"):
+                reset_attendance_data()
+                st.rerun()
             
-            if len(st.session_state.meeting_names) == 0:
-                st.info("No meetings created yet. Add your first meeting below.")
-            else:
-                st.write("Update attendance records (check boxes for attendees):")
-                edited_df = st.data_editor(
-                    st.session_state.attendance,
-                    column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
-                    disabled=False,
-                    use_container_width=True
-                )
+            def mark_all_present(meeting_name):
+                """Mark all students as present for a specific meeting with backup"""
+                if not meeting_name or meeting_name not in st.session_state.attendance.columns:
+                    return False, "Invalid meeting name"
                 
-                if not edited_df.equals(st.session_state.attendance):
-                    st.session_state.attendance = edited_df
-                    success, msg = save_data()
-                    if success:
-                        st.success("Attendance records updated")
-                    else:
-                        st.error(msg)
+                # Create backup before making changes
+                backup_data()
+                
+                # Set all students to present for this meeting
+                st.session_state.attendance[meeting_name] = True
+                
+                # Save changes
+                success, msg = save_data()
+                if success:
+                    return True, f"All students marked as present for {meeting_name}"
+                else:
+                    return False, f"Failed to save changes: {msg}"
             
-            # Meeting management
-            st.divider()
-            st.subheader("Manage Meetings")
-            col_add, col_remove = st.columns(2)
+            # Summary statistics
+            st.subheader("Attendance Summary")
+            attendance_rates = calculate_attendance_rates()
+            st.dataframe(attendance_rates, use_container_width=True)
             
-            with col_add:
-                if st.button("Add New Meeting"):
-                    add_new_meeting()
-            
-            with col_remove:
-                if st.session_state.meeting_names:
-                    meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
-                    if st.button("Remove Meeting", type="secondary"):
-                        delete_meeting(meeting_to_remove)
-            
-            # Member management
-            st.divider()
-            st.subheader("Manage Members")
-            col_add_mem, col_remove_mem = st.columns(2)
-            
-            with col_add_mem:
-                new_member = st.text_input("Add New Member")
-                if st.button("Add Member"):
-                    add_new_person(new_member)
-            
-            with col_remove_mem:
-                if not st.session_state.attendance.empty:
-                    member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
-                    if st.button("Remove Member", type="secondary"):
-                        delete_person(member_to_remove)
+            # Detailed view for admins
+            if is_admin():
+                st.subheader("Detailed Attendance Records")
+                
+                if len(st.session_state.meeting_names) > 0:
+                    st.caption("Quick Actions:")
+                    # Arrange buttons in rows of 3 to prevent clutter
+                    cols = st.columns(min(3, len(st.session_state.meeting_names)))
+                    for i, meeting in enumerate(st.session_state.meeting_names):
+                        with cols[i % 3]:
+                            if st.button(
+                                f"Mark All Present: {meeting}",
+                                type="secondary",
+                                key=f"mark_all_{meeting}"
+                            ):
+                                success, msg = mark_all_present(meeting)
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                    st.divider()  # Separate buttons from the table
+                
+                if len(st.session_state.meeting_names) == 0:
+                    st.info("No meetings created yet. Add your first meeting below.")
+                else:
+                    st.write("Update attendance records (check boxes for attendees):")
+                    edited_df = st.data_editor(
+                        st.session_state.attendance,
+                        column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
+                        disabled=False,
+                        use_container_width=True
+                    )
+                    
+                    if not edited_df.equals(st.session_state.attendance):
+                        st.session_state.attendance = edited_df
+                        success, msg = save_data()
+                        if success:
+                            st.success("Attendance records updated")
+                        else:
+                            st.error(msg)
+                
+                # Meeting management
+                st.divider()
+                st.subheader("Manage Meetings")
+                col_add, col_remove = st.columns(2)
+                
+                with col_add:
+                    if st.button("Add New Meeting"):
+                        add_new_meeting()
+                
+                with col_remove:
+                    if st.session_state.meeting_names:
+                        meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
+                        if st.button("Remove Meeting", type="secondary"):
+                            delete_meeting(meeting_to_remove)
+                
+                # Member management
+                st.divider()
+                st.subheader("Manage Members")
+                col_add_mem, col_remove_mem = st.columns(2)
+                
+                with col_add_mem:
+                    new_member = st.text_input("Add New Member")
+                    if st.button("Add Member"):
+                        add_new_person(new_member)
+                
+                with col_remove_mem:
+                    if not st.session_state.attendance.empty:
+                        member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
+                        if st.button("Remove Member", type="secondary"):
+                            delete_person(member_to_remove)
 
     # ------------------------------
     # Tab 5: Credit & Rewards
@@ -1961,6 +2016,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
