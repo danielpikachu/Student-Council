@@ -108,7 +108,7 @@ def initialize_session_state():
             st.session_state[key] = default
 
 # ------------------------------
-# Config Management (Preserves Signup State)
+# Config Management
 # ------------------------------
 def load_config():
     """Load config with backup recovery (fixes lost signup settings)"""
@@ -612,6 +612,39 @@ def is_user():
 # ------------------------------
 # UI Helper Functions
 # ------------------------------
+def list_backups():
+    """List all available backups in stuco_data/backups"""
+    backup_folder = "stuco_data/backups"
+    if not os.path.exists(backup_folder):
+        return []
+    
+    # Get all backup files (sorted by newest first)
+    backup_files = [f for f in os.listdir(backup_folder) if f.startswith(("app_data.json_", "users.json_"))]
+    backup_files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_folder, x)), reverse=True)
+    return backup_files
+
+def restore_latest_backup():
+    """Restore the newest backup (app_data.json and users.json)"""
+    backup_folder = "stuco_data/backups"
+    backups = list_backups()
+    
+    if not backups:
+        return False, "No backups found."
+    
+    # Restore app_data.json (attendance/credits)
+    app_backups = [f for f in backups if f.startswith("app_data.json_")]
+    if app_backups:
+        latest_app_backup = os.path.join(backup_folder, app_backups[0])
+        shutil.copy2(latest_app_backup, "stuco_data/app_data.json")
+    
+    # Restore users.json (usernames/passwords)
+    user_backups = [f for f in backups if f.startswith("users.json_")]
+    if user_backups:
+        latest_user_backup = os.path.join(backup_folder, user_backups[0])
+        shutil.copy2(latest_user_backup, "stuco_data/users.json")
+    
+    return True, f"Restored latest backups: {app_backups[0] if app_backups else 'No app backup'}, {user_backups[0] if user_backups else 'No user backup'}"
+
 def render_role_badge():
     """Render a visual badge for the user's role"""
     role = st.session_state.get("role", "unknown")
@@ -951,6 +984,30 @@ def render_main_app():
     with st.sidebar:
         st.subheader(f"Logged in as: {st.session_state.user}")
         st.markdown(render_role_badge(), unsafe_allow_html=True)
+
+        # Add this new section HERE (before logout button)
+        if is_creator():
+            st.divider()
+            st.subheader("Restore Backup")
+            st.caption("Recover lost data (attendance, users, credits)")
+        
+        # Show available backups
+        backups = list_backups()
+        if backups:
+            st.info(f"Available backups ({len(backups)}):")
+            for i, backup in enumerate(backups[:5], 1):
+                st.text(f"{i}. {backup}")
+        else:
+            st.warning("No backups found.")
+        
+        # Restore button
+        if st.button("Restore Latest Backup", type="primary"):
+            success, msg = restore_latest_backup()
+            if success:
+                st.success(msg)
+                st.rerun()
+            else:
+                st.error(msg)
         
         if st.button("Logout", key="logout_btn", use_container_width=True):
             st.session_state.user = None
@@ -1904,6 +1961,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
