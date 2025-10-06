@@ -467,72 +467,39 @@ def safe_init_data():
         
     st.session_state.attendance = pd.DataFrame(attendance_data)
 
-def load_data():
-    """Load users, attendance, credits, etc., from Google Sheets"""
-    sheet = connect_to_google_sheets()
+def save_data(sheet):
     if not sheet:
-        return False, "Connection failed"
+        return False, "No sheet connection"
     
     try:
-        # 1. Load users from the "users" tab
+        # Save users to "users" tab
         users_tab = sheet.worksheet("users")
-        users_json = users_tab.acell("A1").value  # Read from cell A1
-        if users_json:
-            st.session_state.users = json.loads(users_json)  # Convert text back to list
-        else:
-            # Initialize with a default admin if no users exist
-            st.session_state.users = [{
-                "username": "admin",
-                "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
-                "role": "admin"
-            }]
+        users_tab.update([st.session_state.users])
         
-        # 2. Load app data from the "app_data" tab
-        app_data_tab = sheet.worksheet("app_data")
-        app_data_json = app_data_tab.acell("A1").value
-        if app_data_json:
-            app_data = json.loads(app_data_json)
-            st.session_state.attendance = pd.read_json(app_data["attendance"])
-            st.session_state.credit_data = pd.read_json(app_data["credit_data"])
-            st.session_state.reward_data = pd.read_json(app_data["reward_data"])
-            st.session_state.meeting_names = app_data["meeting_names"]
-        else:
-            # Initialize empty data if sheet is new
-            st.session_state.attendance = pd.DataFrame({"Name": []})
-            st.session_state.credit_data = pd.DataFrame({"Name": [], "Total_Credits": [], "RedeemedCredits": []})
-            st.session_state.reward_data = pd.DataFrame({"Reward": [], "Cost": [], "Stock": []})
-            st.session_state.meeting_names = []
+        # Save attendance to "attendance" tab
+        att_tab = sheet.worksheet("attendance")
+        att_tab.update([st.session_state.attendance.columns.tolist()] + st.session_state.attendance.values.tolist())
         
-        return True, "Data loaded successfully"
+        return True, "Data saved"
     except Exception as e:
-        return False, f"Load failed: {str(e)}"
+        return False, f"Save error: {str(e)}"
 
-def save_data():
-    """Save users, attendance, credits, etc., to Google Sheets"""
-    sheet = connect_to_google_sheets()
+def load_data(sheet):
     if not sheet:
-        return False, "Connection failed"
+        return False, "No sheet connection"
     
     try:
-        # 1. Save user accounts to the "users" tab
-        users_tab = sheet.worksheet("users")
-        users_json = json.dumps(st.session_state.users)  # Convert users to text
-        users_tab.update("A1", [[users_json]])  # Save to cell A1
+        # Load users
+        users = sheet.worksheet("users").get_all_records()
+        st.session_state.users = users if users else [{"username": "admin", "password": "hashed_pw", "role": "admin"}]
         
-        # 2. Save app data (attendance, credits, etc.) to the "app_data" tab
-        app_data_tab = sheet.worksheet("app_data")
-        app_data = {
-            "attendance": st.session_state.attendance.to_json(),
-            "credit_data": st.session_state.credit_data.to_json(),
-            "reward_data": st.session_state.reward_data.to_json(),
-            "meeting_names": st.session_state.meeting_names
-        }
-        app_data_json = json.dumps(app_data)  # Convert app data to text
-        app_data_tab.update("A1", [[app_data_json]])  # Save to cell A1
+        # Load attendance
+        att_data = sheet.worksheet("attendance").get_all_records()
+        st.session_state.attendance = pd.DataFrame(att_data)
         
-        return True, "Data saved permanently"
+        return True, "Data loaded"
     except Exception as e:
-        return False, f"Save failed: {str(e)}"
+        return False, f"Load error: {str(e)}"
 
 # ------------------------------
 # Authentication UI
@@ -2080,6 +2047,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
