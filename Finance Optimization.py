@@ -152,7 +152,7 @@ def initialize_session_state():
     if "users" not in st.session_state:
         # Show a brief loading message while fetching data
         with st.spinner("Loading app data..."):
-            load_success, load_msg = load_data()  # Uses your new Google Sheets load function
+            load_success, load_msg = load_data(sheet)  # Uses your new Google Sheets load function
             
             if load_success:
                 st.success(load_msg)  # Optional: Show success to admins
@@ -2035,7 +2035,7 @@ def main():
                 st.rerun()
         else:
             # Load app data and show main app
-            load_data()
+            load_data(sheet)
             render_main_app()
     finally:
         # Remove lock file when done
@@ -2047,6 +2047,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
