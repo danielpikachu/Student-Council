@@ -60,6 +60,7 @@ def connect_gsheets():
     except Exception as e:
         st.error(f"❌ Connection failed: {str(e)}")
         return None
+
 # ------------------------------
 # Secured File Management (With Backup)
 # ------------------------------
@@ -133,7 +134,7 @@ def initialize_files():
 
 def initialize_session_state():
     """Initialize session state variables and load permanent data from Google Sheets"""
-    # 1. Initialize core session state variables (your original setup)
+    # 1. Initialize core session state variables
     required_states = {
         "user": None,
         "role": None,
@@ -147,20 +148,22 @@ def initialize_session_state():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # 2. Load permanent data from Google Sheets (users, attendance, credits, etc.)
-    # Only load if data hasn't been loaded yet
+    # 2. FIRST: Connect to Google Sheets
+    sheet = connect_gsheets()
+
+    # 3. THEN: Load permanent data from Google Sheets
     if "users" not in st.session_state:
-        # Show a brief loading message while fetching data
         with st.spinner("Loading app data..."):
-            load_success, load_msg = load_data(sheet)  # Uses your new Google Sheets load function
+            # Pass the connected 'sheet' to load_data()
+            load_success, load_msg = load_data(sheet)
             
             if load_success:
                 st.success(load_msg)  # Optional: Show success to admins
             else:
-                # If load fails, use safe defaults to keep the app running
+                # If load fails, use safe defaults
                 st.warning(f"Using backup data: {load_msg}")
                 
-                # Set default users (admin account) if no data loaded
+                # Set default users (admin account)
                 st.session_state.users = [{
                     "username": "admin",
                     "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
@@ -790,7 +793,7 @@ def reset_attendance_data():
             attendance_data[meeting] = [False for _ in range(len(council_members))]
         
         st.session_state.attendance = pd.DataFrame(attendance_data)
-        save_data()
+        save_data(connect_gsheets())  # Pass connected sheet to save_data()
         st.success("Attendance data reset successfully")
 
 def draw_wheel(rotation_angle=0):
@@ -843,7 +846,7 @@ def add_new_meeting():
     new_meeting_name = f"Meeting {new_meeting_num}"
     st.session_state.meeting_names.append(new_meeting_name)
     st.session_state.attendance[new_meeting_name] = False
-    success, msg = save_data()
+    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
     if success:
         st.success(f"Added new meeting: {new_meeting_name}")
     else:
@@ -854,7 +857,7 @@ def delete_meeting(meeting_name):
     if meeting_name in st.session_state.meeting_names:
         st.session_state.meeting_names.remove(meeting_name)
         st.session_state.attendance = st.session_state.attendance.drop(columns=[meeting_name])
-        success, msg = save_data()
+        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
         if success:
             st.success(f"Deleted meeting: {meeting_name}")
         else:
@@ -880,7 +883,7 @@ def add_new_person(name):
         [st.session_state.attendance, pd.DataFrame([new_row])],
         ignore_index=True
     )
-    success, msg = save_data()
+    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
     if success:
         st.success(f"Added {name} to attendance list")
     else:
@@ -892,7 +895,7 @@ def delete_person(name):
         st.session_state.attendance = st.session_state.attendance[
             st.session_state.attendance['Name'] != name
         ].reset_index(drop=True)
-        success, msg = save_data()
+        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
         if success:
             st.success(f"Deleted {name} from attendance list")
         else:
@@ -912,7 +915,7 @@ def mark_all_present(meeting_name):
     st.session_state.attendance[meeting_name] = True
         
     # Save changes
-    success, msg = save_data()
+    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
     if success:
         return True, f"All students marked as present for {meeting_name}"
     else:
@@ -963,7 +966,7 @@ def import_credit_members_from_excel():
 
         # Step 6: Save to session state and persist (safe write with backup)
         st.session_state.credit_data = new_credit_data
-        success, save_msg = save_data()
+        success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
         if not success:
             return False, f"Failed to save imported members: {save_msg}"
 
@@ -1009,7 +1012,7 @@ def render_main_app():
             st.divider()
             st.subheader("📂 View stuco_data Files")
             
-            # Path to stuco_data (matches your code)
+            # Path to stuco_data
             stuco_path = "stuco_data"
             
             # Check if stuco_data exists
@@ -1176,7 +1179,7 @@ def render_main_app():
                 with col_save:
                     if st.button("Save Event"):
                         st.session_state.calendar_events[date_str] = plan_text
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success(f"Saved event for {plan_date.strftime('%b %d, %Y')}")
                         else:
@@ -1185,7 +1188,7 @@ def render_main_app():
                 with col_delete:
                     if st.button("Delete Event", type="secondary") and date_str in st.session_state.calendar_events:
                         del st.session_state.calendar_events[date_str]
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success(f"Deleted event for {plan_date.strftime('%b %d, %Y')}")
                         else:
@@ -1217,7 +1220,7 @@ def render_main_app():
                     if is_admin():
                         if st.button("Delete", key=f"del_ann_{idx}", type="secondary", use_container_width=True):
                             st.session_state.announcements.pop(idx)
-                            success, msg = save_data()
+                            success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                             if success:
                                 st.success("Announcement deleted")
                                 st.rerun()
@@ -1251,7 +1254,7 @@ def render_main_app():
                             "time": datetime.now().isoformat(),
                             "author": st.session_state.user
                         })
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success("Announcement posted successfully!")
                         else:
@@ -1299,7 +1302,7 @@ def render_main_app():
                         st.session_state.scheduled_events = pd.concat(
                             [st.session_state.scheduled_events, new_event], ignore_index=True
                         )
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success("Event added successfully!")
                         else:
@@ -1318,7 +1321,7 @@ def render_main_app():
                             st.session_state.scheduled_events = st.session_state.scheduled_events[
                                 st.session_state.scheduled_events['Event Name'] != event_to_delete
                             ].reset_index(drop=True)
-                            success, msg = save_data()
+                            success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                             if success:
                                 st.success("Event removed")
                             else:
@@ -1354,7 +1357,7 @@ def render_main_app():
                         st.session_state.occasional_events = pd.concat(
                             [st.session_state.occasional_events, new_event], ignore_index=True
                         )
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success("Event added successfully!")
                         else:
@@ -1373,7 +1376,7 @@ def render_main_app():
                             st.session_state.occasional_events = st.session_state.occasional_events[
                                 st.session_state.occasional_events['Event Name'] != event_to_delete
                             ].reset_index(drop=True)
-                            success, msg = save_data()
+                            success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                             if success:
                                 st.success("Event removed")
                             else:
@@ -1385,7 +1388,7 @@ def render_main_app():
                     st.session_state.occasional_events = st.session_state.occasional_events.sort_values(
                         by='Rating', ascending=False
                     ).reset_index(drop=True)
-                    success, msg = save_data()
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                     if success:
                         st.success("Events sorted by rating")
                     else:
@@ -1415,7 +1418,7 @@ def render_main_app():
                             break
                         best_idx = available[np.argmax(net_profits[available])]
                         if net_profits[best_idx] <= remaining:
-                            allocations[i] += 1
+                            allocations[best_idx] += 1
                             remaining -= net_profits[best_idx]
                         else:
                             break
@@ -1423,7 +1426,7 @@ def render_main_app():
                     st.session_state.allocation_count += 1
                     col_name = f'Allocations (Target: ${target:,.0f})'
                     st.session_state.occasional_events[col_name] = allocations
-                    success, msg = save_data()
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                     if success:
                         st.success("Optimization complete! See results in table.")
                     else:
@@ -1443,28 +1446,13 @@ def render_main_app():
                 reset_attendance_data()
                 st.rerun()
             
-            def mark_all_present(meeting_name):
-                """Mark all students as present for a specific meeting with backup"""
-                if not meeting_name or meeting_name not in st.session_state.attendance.columns:
-                    return False, "Invalid meeting name"
-                
-                # Create backup before making changes
-                backup_data()
-                
-                # Set all students to present for this meeting
-                st.session_state.attendance[meeting_name] = True
-                
-                # Save changes
-                success, msg = save_data()
-                if success:
-                    return True, f"All students marked as present for {meeting_name}"
-                else:
-                    return False, f"Failed to save changes: {msg}"
-            
             # Summary statistics
             st.subheader("Attendance Summary")
             attendance_rates = calculate_attendance_rates()
-            st.dataframe(attendance_rates, use_container_width=True)
+            if attendance_rates:
+                st.dataframe(pd.DataFrame(list(attendance_rates.items()), columns=["Name", "Attendance Rate (%)"]), use_container_width=True)
+            else:
+                st.info("No attendance data to display (add meetings first)")
             
             # Detailed view for admins
             if is_admin():
@@ -1502,7 +1490,7 @@ def render_main_app():
                     
                     if not edited_df.equals(st.session_state.attendance):
                         st.session_state.attendance = edited_df
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
                             st.success("Attendance records updated")
                         else:
@@ -1546,7 +1534,7 @@ def render_main_app():
         col_credits, col_rewards = st.columns(2)
     
         # ------------------------------
-        # Left Column: Credit Management (Simplified)
+        # Left Column: Credit Management
         # ------------------------------
         with col_credits:
             st.subheader("Student Credits")
@@ -1556,9 +1544,7 @@ def render_main_app():
                 use_container_width=True
             )
     
-            # ------------------------------
             # 1. Excel Import (Keep for bulk adding students)
-            # ------------------------------
             if is_admin() or is_credit_manager():
                 st.divider()
                 st.subheader("Import Students (Excel)")
@@ -1573,9 +1559,7 @@ def render_main_app():
                     else:
                         st.error(import_msg)
     
-            # ------------------------------
             # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
-            # ------------------------------
             if is_admin() or is_credit_manager():
                 st.divider()
                 st.subheader("Adjust Student Credits")
@@ -1641,7 +1625,7 @@ def render_main_app():
                                 pass
     
                         # Save changes to file
-                        save_success, save_msg = save_data()
+                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if save_success:
                             st.success(success_msg)
                             # Refresh to show updated credit table
@@ -1653,426 +1637,283 @@ def render_main_app():
                     # No students in credit system yet
                     st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
     
-                # ------------------------------
                 # 3. Remove Entire Student (Keep, with dropdown)
-                # ------------------------------
                 st.divider()
                 st.subheader("Remove Student from Credit System")
                 
                 if not st.session_state.credit_data.empty:
                     student_to_remove = st.selectbox(
-                        "Choose Student to Remove",
+                        "Select Student to Remove",
                         options=sorted(st.session_state.credit_data["Name"].tolist()),
-                        key="remove_student_select"
+                        key="credit_remove_select"
                     )
-    
-                    if st.button("Remove Student", type="secondary", key="student_remove"):
-                        backup_data()  # Backup before deletion
+                    
+                    if st.button("Remove Student", type="secondary", key="credit_remove_btn"):
+                        # Create backup before deletion
+                        backup_data()
+                        
+                        # Remove student from credit data
                         st.session_state.credit_data = st.session_state.credit_data[
                             st.session_state.credit_data["Name"] != student_to_remove
                         ].reset_index(drop=True)
                         
-                        save_success, save_msg = save_data()
+                        # Save changes
+                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if save_success:
-                            st.success(f"Successfully removed {student_to_remove} from credit system")
+                            st.success(f"Removed {student_to_remove} from credit system")
                             st.rerun()
                         else:
-                            st.error(f"Failed to remove student: {save_msg}")
+                            st.error(f"Failed to save changes: {save_msg}")
                 else:
-                    st.info("No students to remove—credit system is empty.")
-    
+                    st.info("No students to remove (credit system is empty)")
+
         # ------------------------------
-        # Right Column: Rewards (Keep Existing Functionality)
+        # Right Column: Rewards & Lucky Draw
         # ------------------------------
         with col_rewards:
             st.subheader("Available Rewards")
             st.dataframe(st.session_state.reward_data, use_container_width=True)
     
-            if is_admin():
-                with st.expander("Manage Rewards (Admin Only)", expanded=False):
-                    # Add New Reward
-                    st.subheader("Add New Reward")
-                    reward_name = st.text_input("Reward Name", "School Merchandise")
-                    reward_cost = st.number_input("Credit Cost", min_value=1, value=75, step=5)
-                    reward_stock = st.number_input("Initial Stock", min_value=0, value=15, step=1)
+            # Admin-only reward management
+            if is_admin() or is_credit_manager():
+                st.divider()
+                st.subheader("Manage Rewards (Admin/Credit Manager)")
+                
+                # Add new reward
+                with st.expander("Add New Reward", expanded=False):
+                    new_reward = st.text_input("Reward Name", "New Reward")
+                    reward_cost = st.number_input("Credit Cost", min_value=1, value=50)
+                    reward_stock = st.number_input("Initial Stock", min_value=0, value=10)
                     
-                    if st.button("Add Reward", key="add_reward"):
-                        backup_data()
-                        new_reward = pd.DataFrame({
-                            'Reward': [reward_name],
+                    if st.button("Add Reward"):
+                        new_row = pd.DataFrame({
+                            'Reward': [new_reward],
                             'Cost': [reward_cost],
                             'Stock': [reward_stock]
                         })
                         st.session_state.reward_data = pd.concat(
-                            [st.session_state.reward_data, new_reward], ignore_index=True
+                            [st.session_state.reward_data, new_row], ignore_index=True
                         )
-                        success, msg = save_data()
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if success:
-                            st.success(f"Added reward: {reward_name} (Cost: {reward_cost} credits)")
+                            st.success(f"Added {new_reward} to rewards")
+                        else:
+                            st.error(msg)
+                
+                # Update existing reward
+                if not st.session_state.reward_data.empty:
+                    st.divider()
+                    st.subheader("Update Reward Stock")
+                    selected_reward = st.selectbox(
+                        "Select Reward", 
+                        st.session_state.reward_data['Reward']
+                    )
+                    
+                    current_stock = st.session_state.reward_data[
+                        st.session_state.reward_data['Reward'] == selected_reward
+                    ]['Stock'].iloc[0]
+                    
+                    new_stock = st.number_input(
+                        "New Stock Level", 
+                        min_value=0, 
+                        value=current_stock
+                    )
+                    
+                    if st.button("Update Stock"):
+                        st.session_state.reward_data.loc[
+                            st.session_state.reward_data['Reward'] == selected_reward,
+                            'Stock'
+                        ] = new_stock
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if success:
+                            st.success(f"Updated {selected_reward} stock to {new_stock}")
                         else:
                             st.error(msg)
     
-                    # Process Reward Redemption
-                    st.divider()
-                    st.subheader("Process Reward Redemption")
-                    if not st.session_state.credit_data.empty and not st.session_state.reward_data.empty:
-                        # Student selection (dropdown, matches credit adjustment)
-                        redeem_student = st.selectbox(
-                            "Student Redeeming",
-                            options=sorted(st.session_state.credit_data["Name"].tolist()),
-                            key="redeem_student_select"
-                        )
-                        # Reward selection
-                        redeem_reward = st.selectbox(
-                            "Reward",
-                            options=st.session_state.reward_data["Reward"].tolist(),
-                            key="redeem_reward_select"
-                        )
-                        
-                        if st.button("Confirm Redemption", key="confirm_redeem"):
-                            backup_data()
-                            # Get student's available credits
-                            student_credits = st.session_state.credit_data.loc[
-                                st.session_state.credit_data["Name"] == redeem_student,
-                                "Total_Credits"
-                            ].iloc[0]
-                            student_redeemed = st.session_state.credit_data.loc[
-                                st.session_state.credit_data["Name"] == redeem_student,
-                                "RedeemedCredits"
-                            ].iloc[0]
-                            available_credits = student_credits - student_redeemed
-    
-                            # Get reward cost and stock
-                            reward_cost = st.session_state.reward_data.loc[
-                                st.session_state.reward_data["Reward"] == redeem_reward,
-                                "Cost"
-                            ].iloc[0]
-                            reward_stock = st.session_state.reward_data.loc[
-                                st.session_state.reward_data["Reward"] == redeem_reward,
-                                "Stock"
-                            ].iloc[0]
-    
-                            # Validate redemption
-                            if available_credits >= reward_cost and reward_stock > 0:
-                                # Update student's redeemed credits
-                                st.session_state.credit_data.loc[
-                                    st.session_state.credit_data["Name"] == redeem_student,
-                                    "RedeemedCredits"
-                                ] += reward_cost
-                                # Update reward stock
-                                st.session_state.reward_data.loc[
-                                    st.session_state.reward_data["Reward"] == redeem_reward,
-                                    "Stock"
-                                ] -= 1
-    
-                                success, msg = save_data()
-                                if success:
-                                    st.success(f"{redeem_student} redeemed {redeem_reward}! Remaining credits: {available_credits - reward_cost}")
-                                else:
-                                    st.error(msg)
-                            else:
-                                if available_credits < reward_cost:
-                                    st.error(f"Insufficient credits! {redeem_student} has {available_credits} available (needs {reward_cost}).")
-                                else:
-                                    st.error(f"Out of stock! No {redeem_reward} left.")
-    
-                    # Remove Reward
-                    st.divider()
-                    st.subheader("Remove Reward")
-                    if not st.session_state.reward_data.empty:
-                        reward_to_remove = st.selectbox(
-                            "Choose Reward to Remove",
-                            options=st.session_state.reward_data["Reward"].tolist(),
-                            key="remove_reward_select"
-                        )
-                        if st.button("Remove Reward", type="secondary", key="reward_remove"):
-                            backup_data()
-                            st.session_state.reward_data = st.session_state.reward_data[
-                                st.session_state.reward_data["Reward"] != reward_to_remove
-                            ].reset_index(drop=True)
-                            success, msg = save_data()
-                            if success:
-                                st.success(f"Removed reward: {reward_to_remove}")
-                            else:
-                                st.error(msg)
-    
-        # ------------------------------
-        # Lucky Draw (Keep Existing, with dropdown student selection)
-        # ------------------------------
-        st.divider()
-        st.subheader("Lucky Draw (50 Credits per Spin)")
-        if is_admin():
-            col_wheel, col_results = st.columns(2)
+            # ------------------------------
+            # Lucky Draw Wheel
+            # ------------------------------
+            st.divider()
+            st.subheader("Lucky Draw Wheel")
             
-            with col_wheel:
-                if not st.session_state.credit_data.empty:
-                    # Dropdown for student selection (matches credit system)
-                    draw_student = st.selectbox(
-                        "Select Student for Spin",
-                        options=sorted(st.session_state.credit_data["Name"].tolist()),
-                        key="draw_student_select"
-                    )
-                    
-                    if st.button("Spin Lucky Wheel", key="spin_wheel") and not st.session_state.get("spinning", False):
-                        st.session_state["spinning"] = True
-                        
-                        # Check if student has enough credits
-                        student_credits = st.session_state.credit_data.loc[
-                            st.session_state.credit_data["Name"] == draw_student,
-                            "Total_Credits"
-                        ].iloc[0]
-                        
-                        if student_credits < 50:
-                            st.error(f"Cannot spin! {draw_student} only has {student_credits} credits (needs 50).")
-                            st.session_state["spinning"] = False
-                        else:
-                            # Deduct spin cost first
-                            backup_data()
-                            st.session_state.credit_data.loc[
-                                st.session_state.credit_data["Name"] == draw_student,
-                                "Total_Credits"
-                            ] -= 50
-                            
-                            # Simulate wheel spin
-                            time.sleep(1)
-                            prize_idx = random.randint(0, len(st.session_state.wheel_prizes) - 1)
-                            final_rotation = 3 * 360 + (prize_idx * (360 / len(st.session_state.wheel_prizes)))
-                            fig = draw_wheel(np.deg2rad(final_rotation))
-                            st.pyplot(fig)
-                            
-                            # Record and display prize
-                            st.session_state["winner_prize"] = st.session_state.wheel_prizes[prize_idx]
-                            save_data()  # Save credit deduction
-                            st.session_state["spinning"] = False
-                else:
-                    st.info("No students in credit system—add students first to use Lucky Draw.")
+            if st.session_state.spinning:
+                # Animate the wheel
+                progress_text = "Spinning the wheel..."
+                my_bar = st.progress(0, text=progress_text)
+                
+                for percent_complete in range(100):
+                    time.sleep(0.05)
+                    my_bar.progress(percent_complete + 1, text=progress_text)
+                
+                my_bar.empty()
+                st.session_state.spinning = False
+                
+                # Select random winner
+                st.session_state.winner = random.choice(st.session_state.wheel_prizes)
+                st.success(f"Congratulations! You won: {st.session_state.winner}")
+                
+                # Update stock if prize is a physical reward
+                if st.session_state.winner in st.session_state.reward_data['Reward'].values:
+                    st.session_state.reward_data.loc[
+                        st.session_state.reward_data['Reward'] == st.session_state.winner,
+                        'Stock'
+                    ] -= 1
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
             
-            with col_results:
-                if "winner_prize" in st.session_state and st.session_state["winner_prize"]:
-                    st.success(f"🎉 {draw_student} won: {st.session_state['winner_prize']}")
-                    
-                    # Add credit prizes back to student
-                    if "Credits" in st.session_state["winner_prize"]:
-                        try:
-                            prize_amount = int(st.session_state["winner_prize"].split()[0])
-                            backup_data()
-                            st.session_state.credit_data.loc[
-                                st.session_state.credit_data["Name"] == draw_student,
-                                "Total_Credits"
-                            ] += prize_amount
-                            save_data()
-                            st.info(f"Added {prize_amount} credits to {draw_student}'s account!")
-                        except:
-                            st.warning("Could not automatically add prize credits—please adjust manually.")
-        else:
-            st.info("Lucky Draw is managed by administrators. Contact an admin to participate.")
+            else:
+                # Display static wheel
+                fig = draw_wheel()
+                st.pyplot(fig)
+                
+                # Spin button
+                if st.button("Spin the Wheel!", type="primary"):
+                    st.session_state.spinning = True
+                    st.rerun()
+                
+                # Show last winner if exists
+                if st.session_state.winner:
+                    st.info(f"Last winner: {st.session_state.winner}")
+
     # ------------------------------
     # Tab 6: SCIS AI Tools
     # ------------------------------
     with tab6:
-        st.subheader("SCIS AI Assistant Tools")
-        st.info("This section is under development. Coming soon!")
+        st.subheader("Student Council AI Assistant")
+        st.info("This section contains AI-powered tools to help with student council tasks.")
         
-        # Placeholder features
-        with st.expander("Event Idea Generator (Beta)"):
-            event_type = st.selectbox("Event Category", ["Fundraiser", "Social", "Community Service", "School Spirit"])
+        # Event Idea Generator
+        with st.expander("Event Idea Generator", expanded=False):
+            st.subheader("Generate Creative Event Ideas")
+            budget = st.slider("Budget Range ($)", 100, 5000, 500)
+            audience = st.selectbox("Target Audience", ["All Students", "Freshmen", "Seniors", "Specific Clubs"])
+            duration = st.selectbox("Event Duration", ["1-2 Hours", "Half Day", "Full Day", "Multiple Days"])
+            
             if st.button("Generate Ideas"):
-                ideas = {
-                    "Fundraiser": [
-                        "Themed bake sale with student-decorated cookies",
-                        "Silent auction with donated items from local businesses",
-                        "Talent show with admission fee",
-                        "Movie night under the stars"
-                    ],
-                    "Social": [
-                        "School dance with photo booth",
-                        "Game night with board games and video games",
-                        "Potluck dinner with international cuisine",
-                        "Hiking trip to local trails"
-                    ],
-                    "Community Service": [
-                        "Park cleanup day with local organization",
-                        "Food drive for community pantry",
-                        "Senior center visit with performances",
-                        "Environmental awareness workshop"
-                    ],
-                    "School Spirit": [
-                        "Spirit week with daily themes",
-                        "Rally before big games",
-                        "Teacher appreciation day",
-                        "School history trivia contest"
+                with st.spinner("Generating event ideas..."):
+                    # In a real implementation, this would use an AI API
+                    ideas = [
+                        f"Eco-Friendly Carnival (Budget: ${budget-100}-${budget}): Games, recycling workshops, and plant sales",
+                        f"Talent Showcase Night (Budget: ${int(budget*0.8)}-${budget}): Students perform, with prizes for different categories",
+                        f"Career Exploration Fair (Budget: ${int(budget*0.7)}-${int(budget*0.9)}): Local professionals showcase different careers"
                     ]
-                }
-                
-                st.success(f"Generated ideas for {event_type} events:")
-                for i, idea in enumerate(ideas[event_type], 1):
-                    st.write(f"{i}. {idea}")
+                    
+                    for i, idea in enumerate(ideas, 1):
+                        st.success(f"Idea {i}: {idea}")
+        
+        # Speech Generator
+        with st.expander("Speech Generator", expanded=False):
+            st.subheader("Generate Speeches for Events")
+            occasion = st.text_input("Occasion", "Opening ceremony for new school year")
+            tone = st.selectbox("Tone", ["Inspirational", "Formal", "Casual", "Motivational"])
+            length = st.select_slider("Approximate Length", options=["Short (1 min)", "Medium (3 min)", "Long (5+ min)"])
+            
+            if st.button("Generate Speech"):
+                with st.spinner("Crafting your speech..."):
+                    # In a real implementation, this would use an AI API
+                    st.write("""**Speech for {occasion}**  
+                    
+                    Good morning everyone,
+                    
+                    Today marks a special moment in our school year. As we {context}, I'm reminded of the incredible potential we have when we work together.
+                    
+                    [Body of speech would go here, tailored to the specific occasion and tone]
+                    
+                    Let's make this year one to remember. Thank you!""".format(
+                        occasion=occasion,
+                        context="begin this new journey" if "new" in occasion.lower() else "gather here"
+                    ))
+        
+        # Survey Creator
+        with st.expander("Survey Creator", expanded=False):
+            st.subheader("Create Surveys for Students")
+            survey_topic = st.text_input("Survey Topic", "Student council event preferences")
+            num_questions = st.slider("Number of Questions", 3, 10, 5)
+            
+            if st.button("Generate Survey"):
+                with st.spinner("Creating survey..."):
+                    st.write(f"# Survey: {survey_topic}")
+                    for i in range(1, num_questions+1):
+                        st.write(f"Q{i}. [Sample question about {survey_topic.lower()}]")
+                        st.write("Options: Strongly Disagree | Disagree | Neutral | Agree | Strongly Agree")
+                    st.write("\n[Open-ended feedback question would go here]")
 
     # ------------------------------
     # Tab 7: Money Transfers
     # ------------------------------
     with tab7:
-        st.subheader("Money Transfer Records")
+        st.subheader("Financial Transactions")
         
+        # Display transaction history
         if not st.session_state.money_data.empty:
-            st.dataframe(st.session_state.money_data, use_container_width=True)
+            st.dataframe(
+                st.session_state.money_data.sort_values('Date', ascending=False),
+                use_container_width=True
+            )
         else:
-            st.info("No money transfer records yet")
+            st.info("No financial transactions recorded yet")
         
+        # Add new transaction (admin only)
         if is_admin():
-            with st.expander("Manage Financial Records (Admin Only)", expanded=False):
-                st.subheader("Record New Transaction")
-                amount = st.number_input("Amount ($)", value=0.0, step=50.0)
-                description = st.text_input("Description", "Bake sale proceeds")
+            with st.expander("Record New Transaction (Admin Only)", expanded=False):
+                st.subheader("New Financial Transaction")
+                amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
+                description = st.text_input("Description", "Funds from bake sale")
                 transaction_date = st.date_input("Date", date.today())
+                handled_by = st.text_input("Handled By", st.session_state.user)
                 
                 if st.button("Record Transaction"):
-                    new_entry = pd.DataFrame({
+                    new_transaction = pd.DataFrame({
                         'Amount': [amount],
                         'Description': [description],
                         'Date': [transaction_date.strftime("%Y-%m-%d")],
-                        'Handled By': [st.session_state.user]
+                        'Handled By': [handled_by]
                     })
                     st.session_state.money_data = pd.concat(
-                        [st.session_state.money_data, new_entry], ignore_index=True
+                        [st.session_state.money_data, new_transaction], ignore_index=True
                     )
-                    success, msg = save_data()
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                     if success:
-                        st.success("Transaction recorded")
+                        st.success("Transaction recorded successfully")
                     else:
                         st.error(msg)
-            
-            if not st.session_state.money_data.empty and is_admin():
-                if st.button("Clear All Records", type="secondary"):
-                    confirm = st.checkbox("I confirm I want to delete all financial records")
-                    if confirm:
-                        st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
-                        success, msg = save_data()
-                        if success:
-                            st.success("All records cleared")
-                        else:
-                            st.error(msg)
+        
+        # Financial summary
+        st.divider()
+        st.subheader("Financial Summary")
+        total_in = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
+        total_out = st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum()
+        net_balance = total_in + total_out
+        
+        col_in, col_out, col_balance = st.columns(3)
+        with col_in:
+            st.metric("Total Income", f"${total_in:.2f}")
+        with col_out:
+            st.metric("Total Expenses", f"${abs(total_out):.2f}")
+        with col_balance:
+            st.metric("Current Balance", f"${net_balance:.2f}")
 
 # ------------------------------
-# Main Execution Flow
+# Main Application Flow
 # ------------------------------
 def main():
-    # File lock to prevent concurrent writes
-    lock_file = os.path.join(DATA_DIR, ".app_lock")
-    if os.path.exists(lock_file):
-        # Check if lock is older than 5 minutes (stale)
-        lock_time = datetime.fromtimestamp(os.path.getmtime(lock_file))
-        if datetime.now() - lock_time > timedelta(minutes=5):
-            os.remove(lock_file)  # Remove stale lock
-        else:
-            st.warning("Another instance is using the app. Please try again shortly.")
-            return
+    # Initialize files if they don't exist
+    initialize_files()
     
-    # Create lock file
-    try:
-        with open(lock_file, "w") as f:
-            f.write(datetime.now().isoformat())
-    except Exception as e:
-        st.error(f"Could not create lock file: {str(e)}")
-        return
+    # Initialize session state variables
+    initialize_session_state()
     
-    try:
-        # Initialize everything
-        initialize_files()
-        initialize_session_state()
-        
-        # Custom CSS
-        st.markdown("""
-        <style>
-        .calendar-day {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 8px;
-            min-height: 100px;
-            margin: 2px;
-        }
-        .today {
-            background-color: #e3f2fd;
-            border: 2px solid #1976d2;
-        }
-        .other-month {
-            background-color: #f5f5f5;
-            color: #9e9e9e;
-        }
-        .day-header {
-            font-weight: bold;
-            text-align: center;
-            padding: 8px;
-            background-color: #f0f2f6;
-            border-radius: 5px;
-        }
-        .plan-text {
-            font-size: 0.85rem;
-            margin-top: 5px;
-            color: #374151;
-        }
-        .role-badge {
-            border-radius: 12px;
-            padding: 3px 8px;
-            font-size: 0.75rem;
-            font-weight: bold;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Login flow
-        if st.session_state.user is None:
-            # Show login form in sidebar
-            login_success = render_login_form()
-            render_signup_form()
-            
-            # Show welcome screen in main area
-            render_welcome_screen()
-            
-            # If login successful, reload
-            if login_success:
-                time.sleep(1)
-                st.rerun()
-        else:
-            # Load app data and show main app
-            load_data(sheet)
-            render_main_app()
-    finally:
-        # Remove lock file when done
-        if os.path.exists(lock_file):
-            try:
-                os.remove(lock_file)
-            except:
-                pass
+    # Ensure data is initialized
+    if "attendance" not in st.session_state:
+        safe_init_data()
+    
+    # Render login/signup forms
+    if not st.session_state.user:
+        render_login_form()
+        render_signup_form()
+        render_welcome_screen()
+    else:
+        # Render main application after login
+        render_main_app()
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
