@@ -42,7 +42,8 @@ def connect_to_google_sheets():
         creds = ServiceAccountCredentials.from_json_keyfile_dict({
             "type": "service_account",
             "client_email": secrets["service_account_email"],
-            "private_key_id": secrets["private_key_id"],  # NEW: Add this line
+            "client_id": "106870580846129188037",
+            "private_key_id": secrets["private_key_id"],
             "private_key": secrets["private_key"].replace("\\n", "\n"),  # Fix line breaks
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
@@ -2078,6 +2079,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
