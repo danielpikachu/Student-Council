@@ -1,5 +1,6 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from oauth2client.client import Request
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -27,36 +28,46 @@ st.set_page_config(
 # Connect to Google Sheets
 # ------------------------------
 def connect_to_google_sheets():
-    """Connect to your Google Sheet using Streamlit Secrets"""
+    """Simplified connection to Google Sheets (fixes empty errors)"""
     try:
-        # Get secrets from Streamlit
+        # Get secrets from Streamlit (keep only what's needed)
         secrets = st.secrets["google_sheets"]
         
-        # Define permissions (scope)
-        scope = [
-            "https://spreadsheets.google.com/feeds",
-            "https://www.googleapis.com/auth/drive"
-        ]
+        # 1. Fix private key formatting (critical!)
+        private_key = secrets["private_key"].replace("\\n", "\n")  # Ensure line breaks are real
         
-        # Create credentials from secrets (ADD private_key_id HERE)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict({
+        # 2. Minimal credentials (only required fields)
+        creds_dict = {
             "type": "service_account",
             "client_email": secrets["service_account_email"],
-            "client_id": "106870580846129188037",
             "private_key_id": secrets["private_key_id"],
-            "private_key": secrets["private_key"].replace("\\n", "\n"),  # Fix line breaks
+            "private_key": private_key,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token",
-            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{secrets['service_account_email']}"  # NEW: Add this too
-        }, scope)
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }
         
-        # Connect to the sheet
+        # 3. Authorize and connect
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        
+        # 4. Debug: Check if credentials are valid
+        if not creds.valid:
+            st.warning("🔄 Refreshing expired credentials...")
+            creds.refresh(Request())  # Refresh if credentials are expired
+        
+        # 5. Connect to the sheet
         client = gspread.authorize(creds)
         sheet = client.open_by_url(secrets["sheet_url"])
+        
+        st.success("✅ Connected to Google Sheets!")  # Confirm success
         return sheet
+
     except Exception as e:
-        st.error(f"Failed to connect to Google Sheets: {str(e)}")
+        # Show FULL error details (no more empty messages!)
+        st.error(f"❌ Connection failed. Detailed error:")
+        st.error(f"Type: {type(e).__name__}")  # What kind of error it is
+        st.error(f"Message: {str(e)}")         # Exact error text
+        st.error(f"Secrets present: {list(secrets.keys())}")  # Check if secrets load
         return None
         
 # ------------------------------
@@ -2079,6 +2090,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
