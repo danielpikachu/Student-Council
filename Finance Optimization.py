@@ -1,6 +1,5 @@
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from oauth2client.client import Request
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -28,15 +27,15 @@ st.set_page_config(
 # Connect to Google Sheets
 # ------------------------------
 def connect_to_google_sheets():
-    """Simplified connection to Google Sheets (fixes empty errors)"""
+    """Simplified Google Sheets connection (no credential refresh)"""
     try:
-        # Get secrets from Streamlit (keep only what's needed)
+        # Get secrets from Streamlit
         secrets = st.secrets["google_sheets"]
         
         # 1. Fix private key formatting (critical!)
-        private_key = secrets["private_key"].replace("\\n", "\n")  # Ensure line breaks are real
+        private_key = secrets["private_key"].replace("\\n", "\n")
         
-        # 2. Minimal credentials (only required fields)
+        # 2. Minimal required credentials
         creds_dict = {
             "type": "service_account",
             "client_email": secrets["service_account_email"],
@@ -49,25 +48,19 @@ def connect_to_google_sheets():
         # 3. Authorize and connect
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        
-        # 4. Debug: Check if credentials are valid
-        if not creds.valid:
-            st.warning("🔄 Refreshing expired credentials...")
-            creds.refresh(Request())  # Refresh if credentials are expired
-        
-        # 5. Connect to the sheet
         client = gspread.authorize(creds)
-        sheet = client.open_by_url(secrets["sheet_url"])
         
-        st.success("✅ Connected to Google Sheets!")  # Confirm success
+        # 4. Open the sheet
+        sheet = client.open_by_url(secrets["sheet_url"])
+        st.success("✅ Connected to Google Sheets!")
         return sheet
 
     except Exception as e:
-        # Show FULL error details (no more empty messages!)
-        st.error(f"❌ Connection failed. Detailed error:")
-        st.error(f"Type: {type(e).__name__}")  # What kind of error it is
-        st.error(f"Message: {str(e)}")         # Exact error text
-        st.error(f"Secrets present: {list(secrets.keys())}")  # Check if secrets load
+        # Show full debug details
+        st.error(f"❌ Connection failed:")
+        st.error(f"Error type: {type(e).__name__}")
+        st.error(f"Error message: {str(e)}")
+        st.error(f"Secrets loaded: {list(secrets.keys()) if 'secrets' in locals() else 'No secrets found'}")
         return None
         
 # ------------------------------
@@ -2090,6 +2083,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
