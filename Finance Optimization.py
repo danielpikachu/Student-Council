@@ -38,13 +38,16 @@ def connect_to_google_sheets():
             "https://www.googleapis.com/auth/drive"
         ]
         
-        # Create credentials from secrets
+        # Create credentials from secrets (ADD private_key_id HERE)
         creds = ServiceAccountCredentials.from_json_keyfile_dict({
             "type": "service_account",
             "client_email": secrets["service_account_email"],
+            "private_key_id": secrets["private_key_id"],  # NEW: Add this line
             "private_key": secrets["private_key"].replace("\\n", "\n"),  # Fix line breaks
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token"
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{secrets['service_account_email']}"  # NEW: Add this too
         }, scope)
         
         # Connect to the sheet
@@ -54,7 +57,7 @@ def connect_to_google_sheets():
     except Exception as e:
         st.error(f"Failed to connect to Google Sheets: {str(e)}")
         return None
-    
+        
 # ------------------------------
 # Secured File Management (With Backup)
 # ------------------------------
@@ -2075,6 +2078,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
