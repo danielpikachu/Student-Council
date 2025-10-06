@@ -26,44 +26,40 @@ st.set_page_config(
 # ------------------------------
 # Connect to Google Sheets
 # ------------------------------
-def connect_to_google_sheets():
-    """Simplified Google Sheets connection (no credential refresh)"""
+def connect_gsheets():
     try:
         # Get secrets from Streamlit
         secrets = st.secrets["google_sheets"]
         
-        # 1. Fix private key formatting (critical!)
-        private_key = secrets["private_key"].replace("\\n", "\n")
-        
-        # 2. Minimal required credentials
-        creds_dict = {
+        # Create credentials dictionary
+        creds = {
             "type": "service_account",
             "client_email": secrets["service_account_email"],
             "private_key_id": secrets["private_key_id"],
-            "private_key": private_key,
             "client_id": "100000000000000000000", 
+            "private_key": secrets["private_key"].replace("\\n", "\n"),
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
         
-        # 3. Authorize and connect
-        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive.file"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
+        # Authenticate using gspread's service_account_from_dict
+        client = gspread.service_account_from_dict(creds)
         
-        # 4. Open the sheet
+        # Open the sheet with explicit permission check
         sheet = client.open_by_url(secrets["sheet_url"])
-        st.success("✅ Connected to Google Sheets!")
-        return sheet
-
-    except Exception as e:
-        # Show full debug details
-        st.error(f"❌ Connection failed:")
-        st.error(f"Error type: {type(e).__name__}")
-        st.error(f"Error message: {str(e)}")
-        st.error(f"Secrets loaded: {list(secrets.keys()) if 'secrets' in locals() else 'No secrets found'}")
-        return None
         
+        # Test read access (to verify permissions)
+        try:
+            sheet.sheet1.get_all_records()  # Try reading the first tab
+            st.success("✅ Full access to Google Sheet confirmed!")
+            return sheet
+        except Exception as e:
+            st.error(f"❌ Can connect but no read access: {str(e)}")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Connection failed: {str(e)}")
+        return None
 # ------------------------------
 # Secured File Management (With Backup)
 # ------------------------------
@@ -2084,6 +2080,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
