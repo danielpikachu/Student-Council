@@ -40,7 +40,8 @@ def connect_to_google_sheets():
             "type": "service_account",
             "client_email": secrets["service_account_email"],
             "private_key_id": secrets["private_key_id"],
-            "private_key": private_key,
+            "private_key": private_key
+            "client_id": "100000000000000000000", 
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token"
         }
@@ -2083,6 +2084,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
