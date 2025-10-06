@@ -1,3 +1,5 @@
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,6 +23,38 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# ------------------------------
+# Connect to Google Sheets
+# ------------------------------
+def connect_to_google_sheets():
+    """Connect to your Google Sheet using Streamlit Secrets"""
+    try:
+        # Get secrets from Streamlit
+        secrets = st.secrets["google_sheets"]
+        
+        # Define permissions (scope)
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        
+        # Create credentials from secrets
+        creds = ServiceAccountCredentials.from_json_keyfile_dict({
+            "type": "service_account",
+            "client_email": secrets["service_account_email"],
+            "private_key": secrets["private_key"].replace("\\n", "\n"),  # Fix line breaks
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token"
+        }, scope)
+        
+        # Connect to the sheet
+        client = gspread.authorize(creds)
+        sheet = client.open_by_url(secrets["sheet_url"])
+        return sheet
+    except Exception as e:
+        st.error(f"Failed to connect to Google Sheets: {str(e)}")
+        return None
+    
 # ------------------------------
 # Secured File Management (With Backup)
 # ------------------------------
@@ -93,7 +127,8 @@ def initialize_files():
             os.replace(temp_file, file)
 
 def initialize_session_state():
-    """Initialize session state variables (avoids undefined errors)"""
+    """Initialize session state variables and load permanent data from Google Sheets"""
+    # 1. Initialize core session state variables (your original setup)
     required_states = {
         "user": None,
         "role": None,
@@ -106,6 +141,32 @@ def initialize_session_state():
     for key, default in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
+
+    # 2. Load permanent data from Google Sheets (users, attendance, credits, etc.)
+    # Only load if data hasn't been loaded yet
+    if "users" not in st.session_state:
+        # Show a brief loading message while fetching data
+        with st.spinner("Loading app data..."):
+            load_success, load_msg = load_data()  # Uses your new Google Sheets load function
+            
+            if load_success:
+                st.success(load_msg)  # Optional: Show success to admins
+            else:
+                # If load fails, use safe defaults to keep the app running
+                st.warning(f"Using backup data: {load_msg}")
+                
+                # Set default users (admin account) if no data loaded
+                st.session_state.users = [{
+                    "username": "admin",
+                    "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
+                    "role": "admin"
+                }]
+                
+                # Set default empty data for other tables
+                st.session_state.attendance = pd.DataFrame({"Name": []})
+                st.session_state.credit_data = pd.DataFrame({"Name": [], "Total_Credits": [], "RedeemedCredits": []})
+                st.session_state.reward_data = pd.DataFrame({"Reward": [], "Cost": [], "Stock": []})
+                st.session_state.meeting_names = []
 
 # ------------------------------
 # Config Management
@@ -402,102 +463,71 @@ def safe_init_data():
     st.session_state.attendance = pd.DataFrame(attendance_data)
 
 def load_data():
-    """Load app data with backup recovery (fixes lost announcements/events)"""
+    """Load users, attendance, credits, etc., from Google Sheets"""
+    sheet = connect_to_google_sheets()
+    if not sheet:
+        return False, "Connection failed"
+    
     try:
-        if os.path.exists(DATA_FILE):
-            with open(DATA_FILE, "r") as f:
-                data = json.load(f)
-            
-            # Load each data structure with validation
-            st.session_state.scheduled_events = pd.DataFrame(data.get("scheduled_events", []))
-            required_cols = ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds']
-            for col in required_cols:
-                if col not in st.session_state.scheduled_events.columns:
-                    st.session_state.scheduled_events[col] = pd.Series(dtype='float64' if col != 'Event Name' else 'object')
-
-            st.session_state.occasional_events = pd.DataFrame(data.get("occasional_events", []))
-            st.session_state.credit_data = pd.DataFrame(data.get("credit_data", []))
-            st.session_state.reward_data = pd.DataFrame(data.get("reward_data", []))
-            st.session_state.wheel_prizes = data.get("wheel_prizes", [
-                "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
-                "Café Coupon", "Free Prom Ticket"
-            ])
-            st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, len(st.session_state.wheel_prizes)))
-            st.session_state.money_data = pd.DataFrame(data.get("money_data", []))
-            st.session_state.calendar_events = data.get("calendar_events", {})
-            st.session_state.announcements = data.get("announcements", [])  # Preserves announcements
-            st.session_state.meeting_names = data.get("meeting_names", ["Meeting 1"])
-            st.session_state.attendance = pd.DataFrame(data.get("attendance", {}))
-            
-            # Fill empty data with defaults
-            if st.session_state.credit_data.empty:
-                st.session_state.credit_data = pd.DataFrame({
-                    'Name': ['Alice', 'Bob', 'Charlie'],
-                    'Total_Credits': [200, 150, 300],
-                    'RedeemedCredits': [50, 0, 100]
-                })
-            if st.session_state.reward_data.empty:
-                st.session_state.reward_data = pd.DataFrame({
-                    'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
-                    'Cost': [50, 30, 80],
-                    'Stock': [10, 20, 5]
-                })
-            if st.session_state.attendance.empty:
-                st.session_state.attendance = pd.DataFrame({
-                    'Name': ['Alice', 'Bob', 'Charlie'],
-                    'Meeting 1': [True, False, True]
-                })
-
+        # 1. Load users from the "users" tab
+        users_tab = sheet.worksheet("users")
+        users_json = users_tab.acell("A1").value  # Read from cell A1
+        if users_json:
+            st.session_state.users = json.loads(users_json)  # Convert text back to list
         else:
-            # Recover from backup if main data file is missing
-            backups = sorted(
-                [f for f in os.listdir(BACKUP_DIR) if f.startswith("app_data.json")],
-                reverse=True
-            )
-            if backups:
-                st.warning("App data missing - restoring from backup")
-                latest_backup = os.path.join(BACKUP_DIR, backups[0])
-                shutil.copy2(latest_backup, DATA_FILE)
-                # Load the recovered data
-                with open(DATA_FILE, "r") as f:
-                    data = json.load(f)
-                # (Data loading code same as above - omitted for brevity)
-            else:
-                # No backup available - initialize fresh
-                safe_init_data()
-                save_data()
+            # Initialize with a default admin if no users exist
+            st.session_state.users = [{
+                "username": "admin",
+                "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
+                "role": "admin"
+            }]
+        
+        # 2. Load app data from the "app_data" tab
+        app_data_tab = sheet.worksheet("app_data")
+        app_data_json = app_data_tab.acell("A1").value
+        if app_data_json:
+            app_data = json.loads(app_data_json)
+            st.session_state.attendance = pd.read_json(app_data["attendance"])
+            st.session_state.credit_data = pd.read_json(app_data["credit_data"])
+            st.session_state.reward_data = pd.read_json(app_data["reward_data"])
+            st.session_state.meeting_names = app_data["meeting_names"]
+        else:
+            # Initialize empty data if sheet is new
+            st.session_state.attendance = pd.DataFrame({"Name": []})
+            st.session_state.credit_data = pd.DataFrame({"Name": [], "Total_Credits": [], "RedeemedCredits": []})
+            st.session_state.reward_data = pd.DataFrame({"Reward": [], "Cost": [], "Stock": []})
+            st.session_state.meeting_names = []
+        
+        return True, "Data loaded successfully"
     except Exception as e:
-        st.error(f"Error loading data: {str(e)}. Resetting to default data.")
-        safe_init_data()
+        return False, f"Load failed: {str(e)}"
 
 def save_data():
-    """Save application data to file with safety checks"""
+    """Save users, attendance, credits, etc., to Google Sheets"""
+    sheet = connect_to_google_sheets()
+    if not sheet:
+        return False, "Connection failed"
+    
     try:
-        backup_data()  # Create backup before saving
+        # 1. Save user accounts to the "users" tab
+        users_tab = sheet.worksheet("users")
+        users_json = json.dumps(st.session_state.users)  # Convert users to text
+        users_tab.update("A1", [[users_json]])  # Save to cell A1
         
-        data = {
-            "scheduled_events": st.session_state.scheduled_events.to_dict(orient="records"),
-            "occasional_events": st.session_state.occasional_events.to_dict(orient="records"),
-            "credit_data": st.session_state.credit_data.to_dict(orient="records"),
-            "reward_data": st.session_state.reward_data.to_dict(orient="records"),
-            "wheel_prizes": st.session_state.wheel_prizes,
-            "calendar_events": st.session_state.calendar_events,
-            "announcements": st.session_state.announcements,
-            "money_data": st.session_state.money_data.to_dict(orient="records"),
-            "attendance": st.session_state.attendance.to_dict(orient="records"),
+        # 2. Save app data (attendance, credits, etc.) to the "app_data" tab
+        app_data_tab = sheet.worksheet("app_data")
+        app_data = {
+            "attendance": st.session_state.attendance.to_json(),
+            "credit_data": st.session_state.credit_data.to_json(),
+            "reward_data": st.session_state.reward_data.to_json(),
             "meeting_names": st.session_state.meeting_names
         }
+        app_data_json = json.dumps(app_data)  # Convert app data to text
+        app_data_tab.update("A1", [[app_data_json]])  # Save to cell A1
         
-        # Write to temporary file first to prevent corruption
-        temp_file = f"{DATA_FILE}.tmp"
-        with open(temp_file, "w") as f:
-            json.dump(data, f, indent=2)
-        
-        # Replace the actual file only if temp write succeeded
-        os.replace(temp_file, DATA_FILE)
-        return True, "Data saved successfully"
+        return True, "Data saved permanently"
     except Exception as e:
-        return False, f"Error saving data: {str(e)}"
+        return False, f"Save failed: {str(e)}"
 
 # ------------------------------
 # Authentication UI
@@ -2045,6 +2075,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
