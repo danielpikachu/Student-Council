@@ -249,8 +249,15 @@ def initialize_session_state():
         
         # Other app state
         "allocation_count": 0
+
+        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],  # Explicitly define groups
+        "group_members": {f"G{i}": [] for i in range(1,9)},
     }
-    
+
+    if "group_codes_initialized" not in st.session_state:
+        initialize_files()  # Ensure group codes file is created
+        st.session_state.group_codes_initialized = True
+        
     # Initialize any missing variables
     for key, default in required_states.items():
         if key not in st.session_state:
@@ -942,7 +949,32 @@ def is_user():
 # ------------------------------
 # UI Helper Functions
 # ------------------------------
-def list_backups():
+def group_diagnostics():
+    """Debug tool to verify group system status"""
+    if is_creator():  # Use your existing admin check function
+        with st.expander("Group System Diagnostics (Admin Only)", expanded=False):
+            st.subheader("System Status")
+            
+            # Check if groups exist
+            st.write("Groups defined:", st.session_state.get("groups", "NOT FOUND"))
+            
+            # Check group members structure
+            st.write("Group members structure:", 
+                    "VALID" if all(f"G{i}" in st.session_state.group_members for i in range(1,9)) 
+                    else "INVALID")
+            
+            # Check group codes file
+            GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+            st.write("Group codes file exists:", os.path.exists(GROUP_CODES_FILE))
+            
+            # Show current group codes if available
+            if os.path.exists(GROUP_CODES_FILE):
+                try:
+                    with open(GROUP_CODES_FILE, "r") as f:
+                        codes = json.load(f)
+                        st.write("Loaded group codes:", codes)
+                except Exception as e:
+                    st.error(f"Error loading codes: {str(e)}")def list_backups():
     """List all available backups in stuco_data/backups"""
     backup_folder = "stuco_data/backups"
     if not os.path.exists(backup_folder):
@@ -1192,16 +1224,29 @@ def get_group_from_code(code):
     return None
     
 def show_group_codes():
-    """Display group codes for admins"""
-    if is_creator():
+    """Ensure group codes are displayed correctly"""
+    if is_creator():  # Make sure only admins can see this
         with st.expander("Group Codes (Admin Only)", expanded=False):
             st.subheader("Current Group Codes")
             group_codes = load_group_codes()
-            if group_codes:
-                for group, code in group_codes.items():
-                    st.text(f"{group}: {code}")
-            else:
-                st.info("No group codes found")
+            
+            if not group_codes:  # If no codes found, regenerate them
+                st.warning("No group codes found. Generating new ones...")
+                group_codes = generate_group_codes()
+                # Save the new codes
+                GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+                with open(GROUP_CODES_FILE, "w") as f:
+                    json.dump(group_codes, f, indent=2)
+            
+            # Display codes in a clear format
+            for group in ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]:
+                code = group_codes.get(group, "MISSING")
+                st.text_input(
+                    f"{group} Code", 
+                    value=code, 
+                    disabled=True,
+                    key=f"code_display_{group}"
+                )
 # ------------------------------
 # Meeting & Attendance Management
 # ------------------------------
@@ -2447,7 +2492,33 @@ def render_main_app():
                                 st.error(msg)
             else:
                 st.info("Select a group from the list to view details")
-
+                
+def render_groups_tab():
+    """Render the groups tab with proper group listing"""
+    st.header("Group Management")
+    
+    # Show diagnostics first for admins
+    group_diagnostics()
+    
+    # List all groups explicitly
+    st.subheader("All Groups")
+    for group in ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]:
+        with st.expander(f"Group {group}", expanded=False):
+            members = st.session_state.group_members.get(group, [])
+            st.write("Members:")
+            if members:
+                for member in members:
+                    st.write(f"- {member}")
+            else:
+                st.info("No members in this group yet")
+            
+            # Add member form (ensure unique key)
+            new_member = st.text_input(f"Add member to {group}", key=f"add_{group}")
+            if st.button(f"Add to {group}", key=f"btn_{group}"):
+                if new_member:
+                    add_group_member(group, new_member)
+                    st.success(f"Added {new_member} to {group}")
+                    st.rerun()
 # ------------------------------
 # Main Application Flow
 # ------------------------------
@@ -2473,6 +2544,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
