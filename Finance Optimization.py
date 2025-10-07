@@ -316,6 +316,94 @@ def initialize_group_system():
         return False, f"Error initializing group system: {str(e)}"
 
 # ------------------------------
+# Import Members from GitHub Excel File
+# ------------------------------
+def import_student_council_members_from_github(github_raw_url):
+    """
+    Import members from Excel file hosted on GitHub
+    
+    Args:
+        github_raw_url (str): Raw URL to the Excel file on GitHub
+        
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    try:
+        # Validate URL
+        if not github_raw_url or "github.com" not in github_raw_url or "raw" not in github_raw_url:
+            return False, "Invalid GitHub raw URL. Please use the raw content URL."
+            
+        # Fetch the Excel file from GitHub
+        response = requests.get(github_raw_url)
+        if response.status_code != 200:
+            return False, f"Failed to fetch file from GitHub. Status code: {response.status_code}"
+            
+        # Read Excel file
+        excel_data = BytesIO(response.content)
+        df = pd.read_excel(excel_data)
+        
+        # Validate structure - check for required 'Name' column
+        if 'Name' not in df.columns:
+            return False, "Excel file must contain a 'Name' column with member names"
+            
+        # Extract and clean member names
+        members = [str(name).strip() for name in df['Name'].dropna() if str(name).strip()]
+        
+        if not members:
+            return False, "No valid member names found in the Excel file"
+            
+        # Backup data before making changes
+        backup_data()
+        
+        # Update attendance data with new members
+        current_attendance = set(st.session_state.attendance['Name'].values) if not st.session_state.attendance.empty else set()
+        new_members = [name for name in members if name not in current_attendance]
+        
+        if new_members:
+            new_attendance_rows = []
+            for name in new_members:
+                row = {'Name': name}
+                # Add False for all existing meetings
+                for meeting in st.session_state.meeting_names:
+                    row[meeting] = False
+                new_attendance_rows.append(row)
+            
+            st.session_state.attendance = pd.concat(
+                [st.session_state.attendance, pd.DataFrame(new_attendance_rows)],
+                ignore_index=True
+            )
+        
+        # Update credit data with new members
+        current_credits = set(st.session_state.credit_data['Name'].values) if not st.session_state.credit_data.empty else set()
+        new_credit_members = [name for name in members if name not in current_credits]
+        
+        if new_credit_members:
+            new_credit_rows = pd.DataFrame({
+                'Name': new_credit_members,
+                'Total_Credits': [0 for _ in new_credit_members],
+                'RedeemedCredits': [0 for _ in new_credit_members]
+            })
+            
+            st.session_state.credit_data = pd.concat(
+                [st.session_state.credit_data, new_credit_rows],
+                ignore_index=True
+            )
+        
+        # Save changes to Google Sheets
+        sheet = connect_gsheets()
+        if sheet:
+            success, msg = save_data(sheet)
+            if not success:
+                return False, f"Members imported but failed to save to Google Sheets: {msg}"
+        else:
+            return False, "Members imported but could not connect to Google Sheets for saving"
+            
+        return True, f"Successfully imported {len(members)} members. {len(new_members)} new members added."
+        
+    except Exception as e:
+        return False, f"Import error: {str(e)}"
+
+# ------------------------------
 # Group Code Management
 # ------------------------------
 def generate_group_codes():
@@ -1808,10 +1896,56 @@ def render_main_app():
         # Admin-only quick stats
         if is_admin():
             st.divider()
-            st.subheader("Quick Stats")
-            st.metric("Total Members", len(st.session_state.attendance))
-            st.metric("Total Funds (Estimated)", f"${sum(st.session_state.scheduled_events['Total Funds']):.2f}")
-            st.metric("Active Groups", len(st.session_state.groups))
+            st.subheader("Data Management")
+            
+            # GitHub Excel import section
+            st.text_input(
+                "GitHub Raw Excel URL",
+                value="https://raw.githubusercontent.com/[username]/[repo]/main/student_council_members.xlsx",
+                key="github_excel_url",
+                help="Paste the raw URL to your student_council_members.xlsx file on GitHub"
+            )
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                # Member import from GitHub button
+                if st.button("Import Members from GitHub", key="import_github_btn"):
+                    github_url = st.session_state.github_excel_url
+                    with st.spinner("Importing members from GitHub..."):
+                        success, msg = import_student_council_members_from_github(github_url)
+                        if success:
+                            st.success(msg)
+                            st.experimental_rerun()
+                        else:
+                            st.error(msg)
+            
+            with col2:
+                # Member import from Google Sheet button (keep existing)
+                if st.button("Import Members from Google Sheet", key="import_gs_btn"):
+                    sheet = connect_gsheets()
+                    if sheet:
+                        with st.spinner("Importing members from Google Sheet..."):
+                            success, msg = import_student_council_members_from_sheet(sheet)
+                            if success:
+                                st.success(msg)
+                                st.experimental_rerun()
+                            else:
+                                st.error(msg)
+                    else:
+                        st.error("Could not connect to Google Sheets")
+            
+            # Google Sheets cleanup button (keep existing)
+            if st.button("Clean Up Google Sheets", key="clean_sheets_btn"):
+                sheet = connect_gsheets()
+                if sheet:
+                    with st.spinner("Cleaning up Google Sheets..."):
+                        success, msg = clean_up_google_sheets(sheet)
+                        if success:
+                            st.success(msg)
+                        else:
+                            st.error(msg)
+                else:
+                    st.error("Could not connect to Google Sheets")
 
     # ------------------------------
     # Main Tabs (Added Groups tab)
@@ -2640,3 +2774,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
