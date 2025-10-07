@@ -157,7 +157,8 @@ def initialize_session_state():
         "groups": [],
         "group_members": {},
         "group_meetings": {},
-        "calendar_events": {}  # Add this line to initialize calendar_events
+        "calendar_events": {},
+        "announcements": []
     }
     for key, default in required_states.items():
         if key not in st.session_state:
@@ -2314,5 +2315,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
