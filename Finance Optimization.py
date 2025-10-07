@@ -65,6 +65,7 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
 # ------------------------------
 # Connect to Google Sheets
 # ------------------------------
@@ -116,7 +117,7 @@ def ensure_directory(path):
         return False
 
 # Define data directories (absolute paths for consistency)
-DATA_DIR = os.path.abspath("stuco_data")
+DATA_DIR = os.path.abspath("stuco_data")  # Keep only this DATA_DIR definition
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 ensure_directory(DATA_DIR)
 ensure_directory(BACKUP_DIR)
@@ -139,7 +140,7 @@ def backup_data():
     """Create backups of all data files (keeps last 5 backups)"""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]  # New: Include groups file
+        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]  # Include groups file
         
         # Create backup for each existing file
         for file in backup_files:
@@ -148,7 +149,7 @@ def backup_data():
                 shutil.copy2(file, backup_path)
         
         # Clean up old backups (keep only most recent 5)
-        for file_type in ["app_data.json", "users.json", "app_config.json", "groups.json"]:  # New: groups.json
+        for file_type in ["app_data.json", "users.json", "app_config.json", "groups.json"]:
             backups = sorted(
                 [f for f in os.listdir(BACKUP_DIR) if f.startswith(file_type)],
                 reverse=True  # Newest first
@@ -164,12 +165,12 @@ def backup_data():
 # ------------------------------
 def initialize_files():
     """Ensure all required data files exist (with safe defaults)"""
-    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:  # New: Add groups file
+    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:  # Add groups file
         if not Path(file).exists():
             initial_data = {}
             if file == CONFIG_FILE:
                 initial_data = {"show_signup": False, "app_version": "1.0.0"}
-            elif file == GROUPS_FILE:  # New: Initialize groups with default structure
+            elif file == GROUPS_FILE:  # Initialize groups with default structure
                 initial_data = {
                     "groups": [],
                     "group_members": {},
@@ -301,8 +302,7 @@ def initialize_session_state():
 # ------------------------------
 # Configuration and Initialization - Group
 # ------------------------------
-# Define paths
-GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
+# Define paths (removed duplicate DATA_DIR)
 GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 
@@ -443,14 +443,14 @@ def save_groups_data():
 # Group Management Functions
 # ------------------------------
 def create_group(group_name, description=""):
-    """Create a new group"""
+    """Create a new group with proper initialization"""
     if not group_name:
         return False, "Group name cannot be empty"
         
     if group_name in st.session_state.groups:
         return False, f"Group '{group_name}' already exists"
         
-    # Add group with proper initialization
+    # Add group with proper initialization of all related structures
     st.session_state.groups.append(group_name)
     if group_name not in st.session_state.group_members:
         st.session_state.group_members[group_name] = []
@@ -2726,4 +2726,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
