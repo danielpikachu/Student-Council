@@ -404,51 +404,51 @@ def import_student_council_members_from_github(github_raw_url):
         return False, f"Import error: {str(e)}"
 
 def import_student_council_members_from_sheet(sheet):
-    """Import members directly from Google Sheet 'Members' worksheet with duplicate check"""
+    """Import members from Google Sheet with robust existence check for 'Members' worksheet"""
     try:
         if not sheet:
             return False, "No Google Sheet connection available"
-            
-        # Step 1: Check if "Members" worksheet exists with proper error handling
+        
+        # Step 1: Explicitly check if "Members" worksheet exists FIRST
+        existing_sheets = [ws.title for ws in sheet.worksheets()]
         members_sheet = None
-        try:
-            # First, try to get existing worksheet
+        
+        # Check if "Members" is in the list of existing sheets
+        if "Members" in existing_sheets:
+            # Worksheet exists - safely get it
             members_sheet = sheet.worksheet("Members")
-        except gspread.WorksheetNotFound:
-            # Only create if it truly doesn't exist
+        else:
+            # Worksheet doesn't exist - create it
             members_sheet = sheet.add_worksheet(title="Members", rows="200", cols="1")
             members_sheet.append_row(["Name"])  # Add header
-        except gspread.APIError as e:
-            # Handle specific API error for duplicate sheets
-            if "A sheet with the name \"Members\" already exists" in str(e):
-                # If it exists but threw an error, try to get it again
-                members_sheet = sheet.worksheet("Members")
-            else:
-                return False, f"Google Sheets API error: {str(e)}"
+            return False, "Created new 'Members' worksheet. Please add member names there first."
         
-        # Step 2: Extract and clean member names from the sheet
+        # Step 2: Extract and clean member names
         members_data = members_sheet.get_all_values()
         
         # Skip if only header exists
         if len(members_data) <= 1:
-            return False, "No members found → Add names to the 'Members' worksheet (below the 'Name' header)"
+            return False, "No members found. Add names to the 'Members' worksheet below the header."
         
-        # Extract valid names (skip header, remove blanks)
-        valid_members = [row[0].strip() for row in members_data[1:] if row and row[0].strip()]
+        # Extract valid names (skip header row, remove blanks)
+        valid_members = []
+        for row in members_data[1:]:  # Start from row 2 (skip header)
+            if row and len(row[0].strip()) > 0:
+                valid_members.append(row[0].strip())
         
         if not valid_members:
-            return False, "No valid names found in the 'Members' worksheet"
+            return False, "No valid member names found in 'Members' worksheet."
         
-        # Step 3: Backup data before making changes
+        # Step 3: Backup data before changes
         backup_data()
         
-        # Step 4: Sync new members to Attendance records
-        current_attendance_names = set(st.session_state.attendance['Name'].values) if not st.session_state.attendance.empty else set()
-        new_members_for_attendance = [name for name in valid_members if name not in current_attendance_names]
+        # Step 4: Update attendance with new members
+        current_attendance = set(st.session_state.attendance['Name'].values) if not st.session_state.attendance.empty else set()
+        new_attendance_members = [name for name in valid_members if name not in current_attendance]
         
-        if new_members_for_attendance:
+        if new_attendance_members:
             new_attendance_rows = []
-            for name in new_members_for_attendance:
+            for name in new_attendance_members:
                 row = {"Name": name}
                 for meeting in st.session_state.meeting_names:
                     row[meeting] = False
@@ -459,15 +459,15 @@ def import_student_council_members_from_sheet(sheet):
                 ignore_index=True
             )
         
-        # Step 5: Sync new members to Credit records
-        current_credit_names = set(st.session_state.credit_data['Name'].values) if not st.session_state.credit_data.empty else set()
-        new_members_for_credits = [name for name in valid_members if name not in current_credit_names]
+        # Step 5: Update credit data with new members
+        current_credits = set(st.session_state.credit_data['Name'].values) if not st.session_state.credit_data.empty else set()
+        new_credit_members = [name for name in valid_members if name not in current_credits]
         
-        if new_members_for_credits:
+        if new_credit_members:
             new_credit_rows = pd.DataFrame({
-                "Name": new_members_for_credits,
-                "Total_Credits": [0] * len(new_members_for_credits),
-                "RedeemedCredits": [0] * len(new_members_for_credits)
+                "Name": new_credit_members,
+                "Total_Credits": [0] * len(new_credit_members),
+                "RedeemedCredits": [0] * len(new_credit_members)
             })
             
             st.session_state.credit_data = pd.concat(
@@ -478,14 +478,19 @@ def import_student_council_members_from_sheet(sheet):
         # Step 6: Save changes
         save_success, save_msg = save_data(sheet)
         if not save_success:
-            return False, f"Members imported but failed to save: {save_msg}"
+            return False, f"Members imported but save failed: {save_msg}"
         
         total_imported = len(valid_members)
-        new_added = len(new_members_for_attendance)
-        return True, f"Success! Imported {total_imported} members ({new_added} new members added)"
+        new_added = len(new_attendance_members)
+        return True, f"Success! Imported {total_imported} members ({new_added} new)"
         
+    except gspread.APIError as e:
+        # Specific handling for duplicate sheet error
+        if "A sheet with the name \"Members\" already exists" in str(e):
+            return False, "The 'Members' worksheet already exists but there was a connection issue. Please try again."
+        return False, f"Google Sheets API error: {str(e)}"
     except Exception as e:
-        return False, f"Google Sheets import failed: {str(e)}"
+        return False, f"Import failed: {str(e)}"
 
 
 def clean_up_google_sheets(sheet):
@@ -2905,6 +2910,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
