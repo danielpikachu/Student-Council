@@ -1001,7 +1001,7 @@ def login_ui():
                 st.session_state.role = result
                 update_user_login(username)
                 st.success(f"Welcome {username}!")
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.session_state.login_attempts += 1
                 st.error(result)
@@ -1046,7 +1046,7 @@ def group_management_ui():
                     if new_desc != desc:
                         update_group_description(group, new_desc)
                         st.success("Description updated")
-                        st.experimental_rerun()
+                        st.rerun()
                 else:
                     st.text_area(
                         "Group Description", 
@@ -1068,7 +1068,7 @@ def group_management_ui():
                                 success, msg = remove_group_member(group, member)
                                 if success:
                                     st.success(msg)
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 else:
                                     st.error(msg)
                 else:
@@ -1081,7 +1081,7 @@ def group_management_ui():
                         success, msg = add_group_member(group, new_member)
                         if success:
                             st.success(msg)
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(msg)
             
@@ -1104,7 +1104,7 @@ def group_management_ui():
                     success, msg = add_group_meeting(group, meeting_date, meeting_agenda)
                     if success:
                         st.success(msg)
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error(msg)
                 
@@ -1138,7 +1138,7 @@ def group_management_ui():
                         )
                         if attended_status != attended and is_admin():
                             update_group_meeting_attendance(group, i, member, attended_status)
-                            st.experimental_rerun()
+                            st.rerun()
                     st.divider()
     
     # Admin section for group codes
@@ -1348,7 +1348,7 @@ def render_login_form():
         
         if clear_btn:
             st.session_state.login_attempts = 0
-            st.experimental_rerun()
+            st.rerun()
         
         if login_btn:
             if not username or not password:
@@ -1550,7 +1550,7 @@ def render_calendar():
                 new_month = 12
                 new_year -= 1
             st.session_state.current_calendar_month = (new_year, new_month)
-            st.experimental_rerun()  # Refresh to show new month
+            st.rerun()  # Refresh to show new month
     
     with col_title:
         # Display current month and year
@@ -1565,7 +1565,7 @@ def render_calendar():
                 new_month = 1
                 new_year += 1
             st.session_state.current_calendar_month = (new_year, new_month)
-            st.experimental_rerun()  # Refresh to show new month
+            st.rerun()  # Refresh to show new month
     
     # Generate calendar grid for current month
     grid, month, year = get_month_grid(current_year, current_month)
@@ -1947,7 +1947,7 @@ def render_main_app():
             success, msg = restore_latest_backup()
             if success:
                 st.success(msg)
-                st.experimental_rerun()
+                st.rerun()
             else:
                 st.error(msg)
         
@@ -1955,7 +1955,7 @@ def render_main_app():
             st.session_state.user = None
             st.session_state.role = None
             st.success("Logged out successfully")
-            st.experimental_rerun()
+            st.rerun()
         
         st.divider()
         
@@ -1974,7 +1974,7 @@ def render_main_app():
                 config["show_signup"] = new_signup_state
                 save_config(config)
                 st.success(f"Signup form {'enabled' if new_signup_state else 'disabled'}")
-                st.experimental_rerun()
+                st.rerun()
             
             st.divider()
             
@@ -2026,7 +2026,7 @@ def render_main_app():
                         if st.button("Delete User", type="secondary", key="creator_delete_btn"):
                             success, msg = delete_user(selected_user)
                             st.success(msg) if success else st.error(msg)
-                            st.experimental_rerun()
+                            st.rerun()
             else:
                 st.info("No users found")
         
@@ -2052,7 +2052,7 @@ def render_main_app():
                         success, msg = import_student_council_members_from_github(github_url)
                         if success:
                             st.success(msg)
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(msg)
             
@@ -2065,7 +2065,7 @@ def render_main_app():
                             success, msg = import_student_council_members_from_sheet(sheet)
                             if success:
                                 st.success(msg)
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error(msg)
                     else:
@@ -2161,7 +2161,7 @@ def render_main_app():
                             success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                             if success:
                                 st.success("Announcement deleted")
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error(msg)
             
@@ -2382,7 +2382,7 @@ def render_main_app():
             st.subheader("Attendance Tracking")
             if is_admin() and st.button("Reset Attendance Data", type="secondary"):
                 reset_attendance_data()
-                st.experimental_rerun()
+                st.rerun()
             
             # Summary statistics
             st.subheader("Attendance Summary")
@@ -2410,7 +2410,7 @@ def render_main_app():
                                 success, msg = mark_all_present(meeting)
                                 if success:
                                     st.success(msg)
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 else:
                                     st.error(msg)
                     st.divider()  # Separate buttons from the table
@@ -2493,7 +2493,7 @@ def render_main_app():
                     import_success, import_msg = import_credit_members_from_excel()
                     if import_success:
                         st.success(import_msg)
-                        st.experimental_rerun()
+                        st.rerun()
                     else:
                         st.error(import_msg)
     
@@ -2567,7 +2567,7 @@ def render_main_app():
                         if save_success:
                             st.success(success_msg)
                             # Refresh to show updated credit table
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(f"Failed to save changes: {save_msg}")
     
@@ -2599,7 +2599,7 @@ def render_main_app():
                         save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if save_success:
                             st.success(f"Removed {student_to_remove} from credit system")
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error(f"Failed to save changes: {save_msg}")
                 else:
@@ -2706,7 +2706,7 @@ def render_main_app():
                 # Spin button
                 if st.button("Spin the Wheel!", type="primary"):
                     st.session_state.spinning = True
-                    st.experimental_rerun()
+                    st.rerun()
                 
                 # Show last winner if exists
                 if st.session_state.winner:
@@ -2911,6 +2911,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
