@@ -2635,539 +2635,540 @@ def render_main_app():
                 net_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum()
                 st.metric("Net from Occasional Events", f"${net_occasional:,.2f}")
 
-# ------------------------------
-# Tab 4: Attendance
-# ------------------------------
-with tab4:
-        st.subheader("Attendance Tracking")
-        if is_admin() and st.button("Reset Attendance Data", type="secondary"):
-            reset_attendance_data()
-            st.rerun()
-        
-        # Summary statistics
-        st.subheader("Attendance Summary")
-        attendance_rates = calculate_attendance_rates()
-        if attendance_rates:
-            st.dataframe(pd.DataFrame(list(attendance_rates.items()), columns=["Name", "Attendance Rate (%)"]), use_container_width=True)
-        else:
-            st.info("No attendance data to display (add meetings first)")
-        
-        # Detailed view for admins
-        if is_admin():
-            st.subheader("Detailed Attendance Records")
+    # ------------------------------
+    # Tab 4: Attendance
+    # ------------------------------
+    with tab4:
+            st.subheader("Attendance Tracking")
+            if is_admin() and st.button("Reset Attendance Data", type="secondary"):
+                reset_attendance_data()
+                st.rerun()
             
-            if len(st.session_state.meeting_names) > 0:
-                st.caption("Quick Actions:")
-                # Arrange buttons in rows of 3 to prevent clutter
-                cols = st.columns(min(3, len(st.session_state.meeting_names)))
-                for i, meeting in enumerate(st.session_state.meeting_names):
-                    with cols[i % 3]:
-                        if st.button(
-                            f"Mark All Present: {meeting}",
-                            type="secondary",
-                            key=f"mark_all_{meeting}"
-                        ):
-                            success, msg = mark_all_present(meeting)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                st.divider()  # Separate buttons from the table
-            
-            if len(st.session_state.meeting_names) == 0:
-                st.info("No meetings created yet. Add your first meeting below.")
+            # Summary statistics
+            st.subheader("Attendance Summary")
+            attendance_rates = calculate_attendance_rates()
+            if attendance_rates:
+                st.dataframe(pd.DataFrame(list(attendance_rates.items()), columns=["Name", "Attendance Rate (%)"]), use_container_width=True)
             else:
-                st.write("Update attendance records (check boxes for attendees):")
-                edited_df = st.data_editor(
-                    st.session_state.attendance,
-                    column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
-                    disabled=False,
-                    use_container_width=True
-                )
+                st.info("No attendance data to display (add meetings first)")
+            
+            # Detailed view for admins
+            if is_admin():
+                st.subheader("Detailed Attendance Records")
                 
-                if not edited_df.equals(st.session_state.attendance):
-                    st.session_state.attendance = edited_df
-                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if success:
-                        st.success("Attendance records updated")
-                    else:
-                        st.error(msg)
-            
-            # Meeting management
-            st.divider()
-            st.subheader("Manage Meetings")
-            col_add, col_remove = st.columns(2)
-            
-            with col_add:
-                if st.button("Add New Meeting"):
-                    add_new_meeting()
-            
-            with col_remove:
-                if st.session_state.meeting_names:
-                    meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
-                    if st.button("Remove Meeting", type="secondary"):
-                        delete_meeting(meeting_to_remove)
-            
-            # Member management
-            st.divider()
-            st.subheader("Manage Members")
-            col_add_mem, col_remove_mem = st.columns(2)
-            
-            with col_add_mem:
-                new_member = st.text_input("Add New Member")
-                if st.button("Add Member"):
-                    add_new_person(new_member)
-            
-            with col_remove_mem:
-                if not st.session_state.attendance.empty:
-                    member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
-                    if st.button("Remove Member", type="secondary"):
-                        delete_person(member_to_remove)
-
-# ------------------------------
-# Tab 5: Credit & Rewards
-# ------------------------------
-with tab5:
-    col_credits, col_rewards = st.columns(2)
-
-    # ------------------------------
-    # Left Column: Credit Management
-    # ------------------------------
-    with col_credits:
-        st.subheader("Student Credits")
-        # Show current credit data (sorted by name for easier finding)
-        st.dataframe(
-            st.session_state.credit_data.sort_values("Name").reset_index(drop=True),
-            use_container_width=True
-        )
-
-        # 1. Excel Import (Keep for bulk adding students)
-        if is_admin() or is_credit_manager():
-            st.divider()
-            st.subheader("Import Students (Excel)")
-            st.caption("Uses 'student_council_members.xlsx' (all get 0 default credits)")
-            st.caption("⚠️ Replaces existing credit members (backup created automatically)")
-            
-            if st.button("Import from Excel", type="primary", key="credit_excel_import"):
-                import_success, import_msg = import_credit_members_from_excel()
-                if import_success:
-                    st.success(import_msg)
-                    st.rerun()
+                if len(st.session_state.meeting_names) > 0:
+                    st.caption("Quick Actions:")
+                    # Arrange buttons in rows of 3 to prevent clutter
+                    cols = st.columns(min(3, len(st.session_state.meeting_names)))
+                    for i, meeting in enumerate(st.session_state.meeting_names):
+                        with cols[i % 3]:
+                            if st.button(
+                                f"Mark All Present: {meeting}",
+                                type="secondary",
+                                key=f"mark_all_{meeting}"
+                            ):
+                                success, msg = mark_all_present(meeting)
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                    st.divider()  # Separate buttons from the table
+                
+                if len(st.session_state.meeting_names) == 0:
+                    st.info("No meetings created yet. Add your first meeting below.")
                 else:
-                    st.error(import_msg)
-
-        # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
-        if is_admin() or is_credit_manager():
-            st.divider()
-            st.subheader("Adjust Student Credits")
-            
-            # Step 1: Select student (dropdown, no typing)
-            if not st.session_state.credit_data.empty:
-                # Sort students alphabetically for easier selection
-                sorted_students = sorted(st.session_state.credit_data["Name"].tolist())
-                selected_student = st.selectbox(
-                    "Choose a Student",
-                    options=sorted_students,
-                    key="credit_student_select"
-                )
-
-                # Step 2: Choose action (Add or Remove)
-                action = st.radio(
-                    "Action",
-                    options=["Add Credits", "Remove Credits"],
-                    key="credit_action"
-                )
-
-                # Step 3: Enter specific credit amount
-                credit_amount = st.number_input(
-                    "Credit Amount",
-                    min_value=1,  # Prevent 0 or negative amounts by default
-                    value=10,
-                    step=1,
-                    key="credit_amount"
-                )
-
-                # Step 4: Confirm and apply change
-                if st.button("Apply Change", type="secondary", key="credit_apply"):
-                    # Create backup first (safety first)
-                    backup_data()
+                    st.write("Update attendance records (check boxes for attendees):")
+                    edited_df = st.data_editor(
+                        st.session_state.attendance,
+                        column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
+                        disabled=False,
+                        use_container_width=True
+                    )
                     
-                    # Get current credit balance
-                    current_credits = st.session_state.credit_data.loc[
-                        st.session_state.credit_data["Name"] == selected_student,
-                        "Total_Credits"
-                    ].iloc[0]
-
-                    # Update credits based on action
-                    if action == "Add Credits":
-                        new_credits = current_credits + credit_amount
-                        st.session_state.credit_data.loc[
+                    if not edited_df.equals(st.session_state.attendance):
+                        st.session_state.attendance = edited_df
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if success:
+                            st.success("Attendance records updated")
+                        else:
+                            st.error(msg)
+                
+                # Meeting management
+                st.divider()
+                st.subheader("Manage Meetings")
+                col_add, col_remove = st.columns(2)
+                
+                with col_add:
+                    if st.button("Add New Meeting"):
+                        add_new_meeting()
+                
+                with col_remove:
+                    if st.session_state.meeting_names:
+                        meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
+                        if st.button("Remove Meeting", type="secondary"):
+                            delete_meeting(meeting_to_remove)
+                
+                # Member management
+                st.divider()
+                st.subheader("Manage Members")
+                col_add_mem, col_remove_mem = st.columns(2)
+                
+                with col_add_mem:
+                    new_member = st.text_input("Add New Member")
+                    if st.button("Add Member"):
+                        add_new_person(new_member)
+                
+                with col_remove_mem:
+                    if not st.session_state.attendance.empty:
+                        member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
+                        if st.button("Remove Member", type="secondary"):
+                            delete_person(member_to_remove)
+    
+    # ------------------------------
+    # Tab 5: Credit & Rewards
+    # ------------------------------
+    with tab5:
+        col_credits, col_rewards = st.columns(2)
+    
+        # ------------------------------
+        # Left Column: Credit Management
+        # ------------------------------
+        with col_credits:
+            st.subheader("Student Credits")
+            # Show current credit data (sorted by name for easier finding)
+            st.dataframe(
+                st.session_state.credit_data.sort_values("Name").reset_index(drop=True),
+                use_container_width=True
+            )
+    
+            # 1. Excel Import (Keep for bulk adding students)
+            if is_admin() or is_credit_manager():
+                st.divider()
+                st.subheader("Import Students (Excel)")
+                st.caption("Uses 'student_council_members.xlsx' (all get 0 default credits)")
+                st.caption("⚠️ Replaces existing credit members (backup created automatically)")
+                
+                if st.button("Import from Excel", type="primary", key="credit_excel_import"):
+                    import_success, import_msg = import_credit_members_from_excel()
+                    if import_success:
+                        st.success(import_msg)
+                        st.rerun()
+                    else:
+                        st.error(import_msg)
+    
+            # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
+            if is_admin() or is_credit_manager():
+                st.divider()
+                st.subheader("Adjust Student Credits")
+                
+                # Step 1: Select student (dropdown, no typing)
+                if not st.session_state.credit_data.empty:
+                    # Sort students alphabetically for easier selection
+                    sorted_students = sorted(st.session_state.credit_data["Name"].tolist())
+                    selected_student = st.selectbox(
+                        "Choose a Student",
+                        options=sorted_students,
+                        key="credit_student_select"
+                    )
+    
+                    # Step 2: Choose action (Add or Remove)
+                    action = st.radio(
+                        "Action",
+                        options=["Add Credits", "Remove Credits"],
+                        key="credit_action"
+                    )
+    
+                    # Step 3: Enter specific credit amount
+                    credit_amount = st.number_input(
+                        "Credit Amount",
+                        min_value=1,  # Prevent 0 or negative amounts by default
+                        value=10,
+                        step=1,
+                        key="credit_amount"
+                    )
+    
+                    # Step 4: Confirm and apply change
+                    if st.button("Apply Change", type="secondary", key="credit_apply"):
+                        # Create backup first (safety first)
+                        backup_data()
+                        
+                        # Get current credit balance
+                        current_credits = st.session_state.credit_data.loc[
                             st.session_state.credit_data["Name"] == selected_student,
                             "Total_Credits"
-                        ] = new_credits
-                        success_msg = f"Added {credit_amount} credits to {selected_student} (New total: {new_credits})"
-                    
-                    else:  # Remove Credits
-                        # Prevent negative credits
-                        if current_credits >= credit_amount:
-                            new_credits = current_credits - credit_amount
+                        ].iloc[0]
+    
+                        # Update credits based on action
+                        if action == "Add Credits":
+                            new_credits = current_credits + credit_amount
                             st.session_state.credit_data.loc[
                                 st.session_state.credit_data["Name"] == selected_student,
                                 "Total_Credits"
                             ] = new_credits
-                            success_msg = f"Removed {credit_amount} credits from {selected_student} (New total: {new_credits})"
+                            success_msg = f"Added {credit_amount} credits to {selected_student} (New total: {new_credits})"
+                        
+                        else:  # Remove Credits
+                            # Prevent negative credits
+                            if current_credits >= credit_amount:
+                                new_credits = current_credits - credit_amount
+                                st.session_state.credit_data.loc[
+                                    st.session_state.credit_data["Name"] == selected_student,
+                                    "Total_Credits"
+                                ] = new_credits
+                                success_msg = f"Removed {credit_amount} credits from {selected_student} (New total: {new_credits})"
+                            else:
+                                st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
+                                # Skip saving if removal would cause negative credits
+                                pass
+    
+                        # Save changes to file
+                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if save_success:
+                            st.success(success_msg)
+                            # Refresh to show updated credit table
+                            st.rerun()
                         else:
-                            st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
-                            # Skip saving if removal would cause negative credits
-                            pass
-
-                    # Save changes to file
-                    save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if save_success:
-                        st.success(success_msg)
-                        # Refresh to show updated credit table
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to save changes: {save_msg}")
-
-            else:
-                # No students in credit system yet
-                st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
-
-            # 3. Remove Entire Student (Keep, with dropdown)
-            st.divider()
-            st.subheader("Remove Student from Credit System")
-            
-            if not st.session_state.credit_data.empty:
-                student_to_remove = st.selectbox(
-                    "Select Student to Remove",
-                    options=sorted(st.session_state.credit_data["Name"].tolist()),
-                    key="credit_remove_select"
-                )
-                
-                if st.button("Remove Student", type="secondary", key="credit_remove_btn"):
-                    # Create backup before deletion
-                    backup_data()
-                    
-                    # Remove student from credit data
-                    st.session_state.credit_data = st.session_state.credit_data[
-                        st.session_state.credit_data["Name"] != student_to_remove
-                    ].reset_index(drop=True)
-                    
-                    # Save changes
-                    save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if save_success:
-                        st.success(f"Removed {student_to_remove} from credit system")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to save changes: {save_msg}")
-            else:
-                st.info("No students to remove (credit system is empty)")
-
-    # ------------------------------
-    # Right Column: Rewards & Lucky Draw
-    # ------------------------------
-    with col_rewards:
-        st.subheader("Available Rewards")
-        st.dataframe(st.session_state.reward_data, use_container_width=True)
-
-        # Admin-only reward management
-        if is_admin() or is_credit_manager():
-            st.divider()
-            st.subheader("Manage Rewards (Admin/Credit Manager)")
-            
-            # Add new reward
-            with st.expander("Add New Reward", expanded=False):
-                new_reward = st.text_input("Reward Name", "New Reward")
-                reward_cost = st.number_input("Credit Cost", min_value=1, value=50)
-                reward_stock = st.number_input("Initial Stock", min_value=0, value=10)
-                
-                if st.button("Add Reward"):
-                    new_row = pd.DataFrame({
-                        'Reward': [new_reward],
-                        'Cost': [reward_cost],
-                        'Stock': [reward_stock]
-                    })
-                    st.session_state.reward_data = pd.concat(
-                        [st.session_state.reward_data, new_row], ignore_index=True
-                    )
-                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if success:
-                        st.success(f"Added {new_reward} to rewards")
-                    else:
-                        st.error(msg)
-            
-            # Update existing reward
-            if not st.session_state.reward_data.empty:
-                st.divider()
-                st.subheader("Update Reward Stock")
-                selected_reward = st.selectbox(
-                    "Select Reward", 
-                    st.session_state.reward_data['Reward']
-                )
-                
-                current_stock = st.session_state.reward_data[
-                    st.session_state.reward_data['Reward'] == selected_reward
-                ]['Stock'].iloc[0]
-                
-                new_stock = st.number_input(
-                    "New Stock Level", 
-                    min_value=0, 
-                    value=current_stock
-                )
-                
-                if st.button("Update Stock"):
-                    st.session_state.reward_data.loc[
-                        st.session_state.reward_data['Reward'] == selected_reward,
-                        'Stock'
-                    ] = new_stock
-                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if success:
-                        st.success(f"Updated {selected_reward} stock to {new_stock}")
-                    else:
-                        st.error(msg)
-
-        # ------------------------------
-        # Lucky Draw Wheel
-        # ------------------------------
-        st.divider()
-        st.subheader("Lucky Draw Wheel")
-        
-        if st.session_state.spinning:
-            # Animate the wheel
-            progress_text = "Spinning the wheel..."
-            my_bar = st.progress(0, text=progress_text)
-            
-            for percent_complete in range(100):
-                time.sleep(0.05)
-                my_bar.progress(percent_complete + 1, text=progress_text)
-            
-            my_bar.empty()
-            st.session_state.spinning = False
-            
-            # Select random winner
-            st.session_state.winner = random.choice(st.session_state.wheel_prizes)
-            st.success(f"Congratulations! You won: {st.session_state.winner}")
-            
-            # Update stock if prize is a physical reward
-            if st.session_state.winner in st.session_state.reward_data['Reward'].values:
-                st.session_state.reward_data.loc[
-                    st.session_state.reward_data['Reward'] == st.session_state.winner,
-                    'Stock'
-                ] -= 1
-                success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-        
-        else:
-            # Display static wheel
-            fig = draw_wheel()
-            st.pyplot(fig)
-            
-            # Spin button
-            if st.button("Spin the Wheel!", type="primary"):
-                st.session_state.spinning = True
-                st.rerun()
-            
-            # Show last winner if exists
-            if st.session_state.winner:
-                st.info(f"Last winner: {st.session_state.winner}")
-
-# ------------------------------
-# Tab 6: SCIS AI Tools
-# ------------------------------
-with tab6:
-    st.subheader("Student Council AI Assistant")
-    st.info("This section contains AI-powered tools to help with student council tasks.")
+                            st.error(f"Failed to save changes: {save_msg}")
     
-    # Event Idea Generator
-    with st.expander("Event Idea Generator", expanded=False):
-        st.subheader("Generate Creative Event Ideas")
-        budget = st.slider("Budget Range ($)", 100, 5000, 500)
-        audience = st.selectbox("Target Audience", ["All Students", "Freshmen", "Seniors", "Specific Clubs"])
-        duration = st.selectbox("Event Duration", ["1-2 Hours", "Half Day", "Full Day", "Multiple Days"])
-        
-        if st.button("Generate Ideas"):
-            with st.spinner("Generating event ideas..."):
-                # In a real implementation, this would use an AI API
-                ideas = [
-                    f"Eco-Friendly Carnival (Budget: ${budget-100}-${budget}): Games, recycling workshops, and plant sales",
-                    f"Talent Showcase Night (Budget: ${int(budget*0.8)}-${budget}): Students perform, with prizes for different categories",
-                    f"Career Exploration Fair (Budget: ${int(budget*0.7)}-${int(budget*0.9)}): Local professionals showcase different careers"
-                ]
-                
-                for i, idea in enumerate(ideas, 1):
-                    st.success(f"Idea {i}: {idea}")
-    
-    # Speech Generator
-    with st.expander("Speech Generator", expanded=False):
-        st.subheader("Generate Speeches for Events")
-        occasion = st.text_input("Occasion", "Opening ceremony for new school year")
-        tone = st.selectbox("Tone", ["Inspirational", "Formal", "Casual", "Motivational"])
-        length = st.select_slider("Approximate Length", options=["Short (1 min)", "Medium (3 min)", "Long (5+ min)"])
-        
-        if st.button("Generate Speech"):
-            with st.spinner("Crafting your speech..."):
-                # In a real implementation, this would use an AI API
-                st.write("""**Speech for {occasion}**  
-
-                Good morning everyone,
-
-                Today marks a special moment in our school year. As we {context}, I'm reminded of the incredible potential we have when we work together.
-
-                [Body of speech would go here, tailored to the specific occasion and tone]
-
-                Let's make this year one to remember. Thank you!""".format(
-                    occasion=occasion,
-                    context="begin this new journey" if "new" in occasion.lower() else "gather here"
-                ))
-    
-    # Survey Creator
-    with st.expander("Survey Creator", expanded=False):
-        st.subheader("Create Surveys for Students")
-        survey_topic = st.text_input("Survey Topic", "Student council event preferences")
-        num_questions = st.slider("Number of Questions", 3, 10, 5)
-        
-        if st.button("Generate Survey"):
-            with st.spinner("Creating survey..."):
-                st.write(f"# Survey: {survey_topic}")
-                for i in range(1, num_questions+1):
-                    st.write(f"Q{i}. [Sample question about {survey_topic.lower()}]")
-                    st.write("Options: Strongly Disagree | Disagree | Neutral | Agree | Strongly Agree")
-                st.write("\n[Open-ended feedback question would go here]")
-
-# ------------------------------
-# Tab 7: Money Transfers
-# ------------------------------
-with tab7:
-    st.subheader("Financial Transactions")
-    
-    # Display transaction history
-    if not st.session_state.money_data.empty:
-        st.dataframe(
-            st.session_state.money_data.sort_values('Date', ascending=False),
-            use_container_width=True
-        )
-    else:
-        st.info("No financial transactions recorded yet")
-    
-    # Add new transaction (admin only)
-    if is_admin():
-        with st.expander("Record New Transaction (Admin Only)", expanded=False):
-            st.subheader("New Financial Transaction")
-            
-            # Transaction details form
-            col1, col2 = st.columns(2)
-            with col1:
-                amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
-                transaction_type = st.radio("Type", ["Income", "Expense"])
-            
-            with col2:
-                description = st.text_input("Description", "Fundraising event proceeds")
-                handled_by = st.text_input("Handled By", st.session_state.user)
-            
-            transaction_date = st.date_input("Transaction Date", date.today())
-            
-            if st.button("Record Transaction"):
-                if amount <= 0:
-                    st.error("Amount must be greater than zero")
-                elif not description.strip():
-                    st.error("Please enter a description")
                 else:
-                    # Adjust amount based on transaction type
-                    recorded_amount = amount if transaction_type == "Income" else -amount
-                    
-                    # Create new transaction record
-                    new_transaction = pd.DataFrame({
-                        'Amount': [recorded_amount],
-                        'Description': [description],
-                        'Date': [transaction_date.strftime("%Y-%m-%d")],
-                        'Handled By': [handled_by]
-                    })
-                    
-                    # Add to transaction history
-                    st.session_state.money_data = pd.concat(
-                        [st.session_state.money_data, new_transaction], ignore_index=True
+                    # No students in credit system yet
+                    st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
+    
+                # 3. Remove Entire Student (Keep, with dropdown)
+                st.divider()
+                st.subheader("Remove Student from Credit System")
+                
+                if not st.session_state.credit_data.empty:
+                    student_to_remove = st.selectbox(
+                        "Select Student to Remove",
+                        options=sorted(st.session_state.credit_data["Name"].tolist()),
+                        key="credit_remove_select"
                     )
                     
-                    # Save changes
-                    success, msg = save_data(connect_gsheets())
-                    if success:
-                        st.success(f"Successfully recorded {transaction_type.lower()} of ${amount:.2f}")
+                    if st.button("Remove Student", type="secondary", key="credit_remove_btn"):
+                        # Create backup before deletion
+                        backup_data()
+                        
+                        # Remove student from credit data
+                        st.session_state.credit_data = st.session_state.credit_data[
+                            st.session_state.credit_data["Name"] != student_to_remove
+                        ].reset_index(drop=True)
+                        
+                        # Save changes
+                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if save_success:
+                            st.success(f"Removed {student_to_remove} from credit system")
+                            st.rerun()
+                        else:
+                            st.error(f"Failed to save changes: {save_msg}")
+                else:
+                    st.info("No students to remove (credit system is empty)")
+    
+        # ------------------------------
+        # Right Column: Rewards & Lucky Draw
+        # ------------------------------
+        with col_rewards:
+            st.subheader("Available Rewards")
+            st.dataframe(st.session_state.reward_data, use_container_width=True)
+    
+            # Admin-only reward management
+            if is_admin() or is_credit_manager():
+                st.divider()
+                st.subheader("Manage Rewards (Admin/Credit Manager)")
+                
+                # Add new reward
+                with st.expander("Add New Reward", expanded=False):
+                    new_reward = st.text_input("Reward Name", "New Reward")
+                    reward_cost = st.number_input("Credit Cost", min_value=1, value=50)
+                    reward_stock = st.number_input("Initial Stock", min_value=0, value=10)
+                    
+                    if st.button("Add Reward"):
+                        new_row = pd.DataFrame({
+                            'Reward': [new_reward],
+                            'Cost': [reward_cost],
+                            'Stock': [reward_stock]
+                        })
+                        st.session_state.reward_data = pd.concat(
+                            [st.session_state.reward_data, new_row], ignore_index=True
+                        )
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if success:
+                            st.success(f"Added {new_reward} to rewards")
+                        else:
+                            st.error(msg)
+                
+                # Update existing reward
+                if not st.session_state.reward_data.empty:
+                    st.divider()
+                    st.subheader("Update Reward Stock")
+                    selected_reward = st.selectbox(
+                        "Select Reward", 
+                        st.session_state.reward_data['Reward']
+                    )
+                    
+                    current_stock = st.session_state.reward_data[
+                        st.session_state.reward_data['Reward'] == selected_reward
+                    ]['Stock'].iloc[0]
+                    
+                    new_stock = st.number_input(
+                        "New Stock Level", 
+                        min_value=0, 
+                        value=current_stock
+                    )
+                    
+                    if st.button("Update Stock"):
+                        st.session_state.reward_data.loc[
+                            st.session_state.reward_data['Reward'] == selected_reward,
+                            'Stock'
+                        ] = new_stock
+                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        if success:
+                            st.success(f"Updated {selected_reward} stock to {new_stock}")
+                        else:
+                            st.error(msg)
+    
+            # ------------------------------
+            # Lucky Draw Wheel
+            # ------------------------------
+            st.divider()
+            st.subheader("Lucky Draw Wheel")
+            
+            if st.session_state.spinning:
+                # Animate the wheel
+                progress_text = "Spinning the wheel..."
+                my_bar = st.progress(0, text=progress_text)
+                
+                for percent_complete in range(100):
+                    time.sleep(0.05)
+                    my_bar.progress(percent_complete + 1, text=progress_text)
+                
+                my_bar.empty()
+                st.session_state.spinning = False
+                
+                # Select random winner
+                st.session_state.winner = random.choice(st.session_state.wheel_prizes)
+                st.success(f"Congratulations! You won: {st.session_state.winner}")
+                
+                # Update stock if prize is a physical reward
+                if st.session_state.winner in st.session_state.reward_data['Reward'].values:
+                    st.session_state.reward_data.loc[
+                        st.session_state.reward_data['Reward'] == st.session_state.winner,
+                        'Stock'
+                    ] -= 1
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+            
+            else:
+                # Display static wheel
+                fig = draw_wheel()
+                st.pyplot(fig)
+                
+                # Spin button
+                if st.button("Spin the Wheel!", type="primary"):
+                    st.session_state.spinning = True
+                    st.rerun()
+                
+                # Show last winner if exists
+                if st.session_state.winner:
+                    st.info(f"Last winner: {st.session_state.winner}")
+    
+    # ------------------------------
+    # Tab 6: SCIS AI Tools
+    # ------------------------------
+    with tab6:
+        st.subheader("Student Council AI Assistant")
+        st.info("This section contains AI-powered tools to help with student council tasks.")
+        
+        # Event Idea Generator
+        with st.expander("Event Idea Generator", expanded=False):
+            st.subheader("Generate Creative Event Ideas")
+            budget = st.slider("Budget Range ($)", 100, 5000, 500)
+            audience = st.selectbox("Target Audience", ["All Students", "Freshmen", "Seniors", "Specific Clubs"])
+            duration = st.selectbox("Event Duration", ["1-2 Hours", "Half Day", "Full Day", "Multiple Days"])
+            
+            if st.button("Generate Ideas"):
+                with st.spinner("Generating event ideas..."):
+                    # In a real implementation, this would use an AI API
+                    ideas = [
+                        f"Eco-Friendly Carnival (Budget: ${budget-100}-${budget}): Games, recycling workshops, and plant sales",
+                        f"Talent Showcase Night (Budget: ${int(budget*0.8)}-${budget}): Students perform, with prizes for different categories",
+                        f"Career Exploration Fair (Budget: ${int(budget*0.7)}-${int(budget*0.9)}): Local professionals showcase different careers"
+                    ]
+                    
+                    for i, idea in enumerate(ideas, 1):
+                        st.success(f"Idea {i}: {idea}")
+        
+        # Speech Generator
+        with st.expander("Speech Generator", expanded=False):
+            st.subheader("Generate Speeches for Events")
+            occasion = st.text_input("Occasion", "Opening ceremony for new school year")
+            tone = st.selectbox("Tone", ["Inspirational", "Formal", "Casual", "Motivational"])
+            length = st.select_slider("Approximate Length", options=["Short (1 min)", "Medium (3 min)", "Long (5+ min)"])
+            
+            if st.button("Generate Speech"):
+                with st.spinner("Crafting your speech..."):
+                    # In a real implementation, this would use an AI API
+                    st.write("""**Speech for {occasion}**  
+    
+                    Good morning everyone,
+    
+                    Today marks a special moment in our school year. As we {context}, I'm reminded of the incredible potential we have when we work together.
+    
+                    [Body of speech would go here, tailored to the specific occasion and tone]
+    
+                    Let's make this year one to remember. Thank you!""".format(
+                        occasion=occasion,
+                        context="begin this new journey" if "new" in occasion.lower() else "gather here"
+                    ))
+        
+        # Survey Creator
+        with st.expander("Survey Creator", expanded=False):
+            st.subheader("Create Surveys for Students")
+            survey_topic = st.text_input("Survey Topic", "Student council event preferences")
+            num_questions = st.slider("Number of Questions", 3, 10, 5)
+            
+            if st.button("Generate Survey"):
+                with st.spinner("Creating survey..."):
+                    st.write(f"# Survey: {survey_topic}")
+                    for i in range(1, num_questions+1):
+                        st.write(f"Q{i}. [Sample question about {survey_topic.lower()}]")
+                        st.write("Options: Strongly Disagree | Disagree | Neutral | Agree | Strongly Agree")
+                    st.write("\n[Open-ended feedback question would go here]")
+    
+    # ------------------------------
+    # Tab 7: Money Transfers
+    # ------------------------------
+    with tab7:
+        st.subheader("Financial Transactions")
+        
+        # Display transaction history
+        if not st.session_state.money_data.empty:
+            st.dataframe(
+                st.session_state.money_data.sort_values('Date', ascending=False),
+                use_container_width=True
+            )
+        else:
+            st.info("No financial transactions recorded yet")
+        
+        # Add new transaction (admin only)
+        if is_admin():
+            with st.expander("Record New Transaction (Admin Only)", expanded=False):
+                st.subheader("New Financial Transaction")
+                
+                # Transaction details form
+                col1, col2 = st.columns(2)
+                with col1:
+                    amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
+                    transaction_type = st.radio("Type", ["Income", "Expense"])
+                
+                with col2:
+                    description = st.text_input("Description", "Fundraising event proceeds")
+                    handled_by = st.text_input("Handled By", st.session_state.user)
+                
+                transaction_date = st.date_input("Transaction Date", date.today())
+                
+                if st.button("Record Transaction"):
+                    if amount <= 0:
+                        st.error("Amount must be greater than zero")
+                    elif not description.strip():
+                        st.error("Please enter a description")
                     else:
-                        st.error(msg)
-    
-    # Financial summary
-    st.divider()
-    st.subheader("Financial Summary")
-    
-    if not st.session_state.money_data.empty:
-        # Calculate totals
-        total_income = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
-        total_expense = abs(st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum())
-        net_balance = total_income - total_expense
+                        # Adjust amount based on transaction type
+                        recorded_amount = amount if transaction_type == "Income" else -amount
+                        
+                        # Create new transaction record
+                        new_transaction = pd.DataFrame({
+                            'Amount': [recorded_amount],
+                            'Description': [description],
+                            'Date': [transaction_date.strftime("%Y-%m-%d")],
+                            'Handled By': [handled_by]
+                        })
+                        
+                        # Add to transaction history
+                        st.session_state.money_data = pd.concat(
+                            [st.session_state.money_data, new_transaction], ignore_index=True
+                        )
+                        
+                        # Save changes
+                        success, msg = save_data(connect_gsheets())
+                        if success:
+                            st.success(f"Successfully recorded {transaction_type.lower()} of ${amount:.2f}")
+                        else:
+                            st.error(msg)
         
-        # Display metrics
-        col_inc, col_exp, col_bal = st.columns(3)
-        with col_inc:
-            st.metric("Total Income", f"${total_income:.2f}")
-        with col_exp:
-            st.metric("Total Expenses", f"${total_expense:.2f}")
-        with col_bal:
-            st.metric("Net Balance", f"${net_balance:.2f}")
+        # Financial summary
+        st.divider()
+        st.subheader("Financial Summary")
         
-        # Monthly breakdown chart
-        if st.checkbox("Show Monthly Breakdown"):
-            # Convert to datetime for grouping
-            st.session_state.money_data['Date'] = pd.to_datetime(st.session_state.money_data['Date'])
-            st.session_state.money_data['Month'] = st.session_state.money_data['Date'].dt.to_period('M')
+        if not st.session_state.money_data.empty:
+            # Calculate totals
+            total_income = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
+            total_expense = abs(st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum())
+            net_balance = total_income - total_expense
             
-            # Group by month
-            monthly_data = st.session_state.money_data.groupby('Month')['Amount'].sum().reset_index()
-            monthly_data['Month'] = monthly_data['Month'].astype(str)
+            # Display metrics
+            col_inc, col_exp, col_bal = st.columns(3)
+            with col_inc:
+                st.metric("Total Income", f"${total_income:.2f}")
+            with col_exp:
+                st.metric("Total Expenses", f"${total_expense:.2f}")
+            with col_bal:
+                st.metric("Net Balance", f"${net_balance:.2f}")
             
-            # Create and display chart
-            fig, ax = plt.subplots()
-            ax.bar(monthly_data['Month'], monthly_data['Amount'], color=['green' if x > 0 else 'red' for x in monthly_data['Amount']])
-            ax.set_title('Monthly Financial Overview')
-            ax.set_xlabel('Month')
-            ax.set_ylabel('Net Amount ($)')
-            plt.xticks(rotation=45)
-            st.pyplot(fig)
-    else:
-        st.info("No financial data available for summary")
-
-# ------------------------------
-# Tab 8: Groups
-# ------------------------------
-with tab8:
-    group_management_ui()
-    group_diagnostics()
-    show_group_codes()
-
-# ------------------------------
-# Main Execution Flow
-# ------------------------------
-def main():
-    # Initialize files and session state
-    initialize_files()
-    initialize_session_state()
+            # Monthly breakdown chart
+            if st.checkbox("Show Monthly Breakdown"):
+                # Convert to datetime for grouping
+                st.session_state.money_data['Date'] = pd.to_datetime(st.session_state.money_data['Date'])
+                st.session_state.money_data['Month'] = st.session_state.money_data['Date'].dt.to_period('M')
+                
+                # Group by month
+                monthly_data = st.session_state.money_data.groupby('Month')['Amount'].sum().reset_index()
+                monthly_data['Month'] = monthly_data['Month'].astype(str)
+                
+                # Create and display chart
+                fig, ax = plt.subplots()
+                ax.bar(monthly_data['Month'], monthly_data['Amount'], color=['green' if x > 0 else 'red' for x in monthly_data['Amount']])
+                ax.set_title('Monthly Financial Overview')
+                ax.set_xlabel('Month')
+                ax.set_ylabel('Net Amount ($)')
+                plt.xticks(rotation=45)
+                st.pyplot(fig)
+        else:
+            st.info("No financial data available for summary")
     
-    # Load group data
-    load_groups_data()
+    # ------------------------------
+    # Tab 8: Groups
+    # ------------------------------
+    with tab8:
+        group_management_ui()
+        group_diagnostics()
+        show_group_codes()
     
-    # Check if user is logged in
-    if st.session_state.user:
-        # Load application data
-        sheet = connect_gsheets()
-        load_data(sheet)
-        render_main_app()
-    else:
-        # Show login and signup forms
-        login_success = render_login_form()
-        render_signup_form()
+    # ------------------------------
+    # Main Execution Flow
+    # ------------------------------
+    def main():
+        # Initialize files and session state
+        initialize_files()
+        initialize_session_state()
         
-        if not login_success:
-            render_welcome_screen()
-
-if __name__ == "__main__":
-    main()
+        # Load group data
+        load_groups_data()
+        
+        # Check if user is logged in
+        if st.session_state.user:
+            # Load application data
+            sheet = connect_gsheets()
+            load_data(sheet)
+            render_main_app()
+        else:
+            # Show login and signup forms
+            login_success = render_login_form()
+            render_signup_form()
+            
+            if not login_success:
+                render_welcome_screen()
+    
+    if __name__ == "__main__":
+        main()
+    
