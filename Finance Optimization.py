@@ -3143,32 +3143,31 @@ def render_main_app():
         group_management_ui()
         group_diagnostics()
         show_group_codes()
-    
-    # ------------------------------
-    # Main Execution Flow
-    # ------------------------------
-    def main():
-        # Initialize files and session state
-        initialize_files()
-        initialize_session_state()
+
+# ------------------------------
+# Main Execution Flow
+# ------------------------------
+def main():
+    # Initialize files and session state
+    initialize_files()
+    initialize_session_state()
         
-        # Load group data
-        load_groups_data()
+    # Load group data
+    load_groups_data()
         
-        # Check if user is logged in
-        if st.session_state.user:
-            # Load application data
-            sheet = connect_gsheets()
-            load_data(sheet)
-            render_main_app()
-        else:
-            # Show login and signup forms
-            login_success = render_login_form()
-            render_signup_form()
+    # Check if user is logged in
+    if st.session_state.user:
+        # Load application data
+        sheet = connect_gsheets()
+        load_data(sheet)
+        render_main_app()
+    else:
+        # Show login and signup forms
+        login_success = render_login_form()
+        render_signup_form()
             
-            if not login_success:
-                render_welcome_screen()
+        if not login_success:
+            render_welcome_screen()
     
-    if __name__ == "__main__":
+if __name__ == "__main__":
         main()
-    
