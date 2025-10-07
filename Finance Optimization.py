@@ -150,10 +150,13 @@ def initialize_session_state():
         "spinning": False,
         "winner": None,
         "allocation_count": 0,
+        "scheduled_events": pd.DataFrame(columns=[
+            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
+        ]),
         "current_calendar_month": (date.today().year, date.today().month),  # For calendar navigation
-        "groups": [],  # New: Groups list
-        "group_members": {},  # New: Members per group
-        "group_meetings": {}  # New: Meetings per group
+        "groups": [],
+        "group_members": {},
+        "group_meetings": {}
     }
     for key, default in required_states.items():
         if key not in st.session_state:
@@ -2310,3 +2313,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
