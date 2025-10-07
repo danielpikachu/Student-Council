@@ -24,6 +24,45 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+st.markdown("""
+<style>
+.day-header {
+    text-align: center;
+    font-weight: bold;
+    padding: 8px;
+    background-color: #f0f2f6;
+    border-radius: 4px;
+}
+
+.calendar-day {
+    text-align: center;
+    padding: 10px 5px;
+    min-height: 80px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+.calendar-day.other-month {
+    background-color: #fafafa;
+    color: #999;
+}
+
+.calendar-day.today {
+    background-color: #e3f2fd;
+    border: 2px solid #2196f3;
+}
+
+.plan-text {
+    font-size: 0.8em;
+    margin-top: 5px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+</style>
+""", unsafe_allow_html=True)
 # ------------------------------
 # Connect to Google Sheets
 # ------------------------------
@@ -2360,6 +2399,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
