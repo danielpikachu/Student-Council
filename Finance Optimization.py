@@ -141,25 +141,70 @@ def initialize_files():
             os.replace(temp_file, file)
 
 def initialize_session_state():
-    """Initialize session state variables and load permanent data from Google Sheets"""
-    # 1. Initialize core session state variables
+    """Initialize ALL session state variables with proper defaults"""
+    # Create council members list (will be used for initializing other data)
+    council_members = load_student_council_members() or ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+    
+    # Define ALL required session state variables with defaults
     required_states = {
+        # User authentication
         "user": None,
         "role": None,
         "login_attempts": 0,
-        "spinning": False,
-        "winner": None,
-        "allocation_count": 0,
+        "users": [],  # User data storage
+        
+        # Core app data
+        "attendance": pd.DataFrame({
+            'Name': council_members,
+            'First Meeting': [i % 3 != 0 for i in range(len(council_members))]
+        }),
+        "meeting_names": ["First Meeting"],
+        
+        # Financial data
         "scheduled_events": pd.DataFrame(columns=[
             'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
         ]),
-        "current_calendar_month": (date.today().year, date.today().month),  # For calendar navigation
+        "occasional_events": pd.DataFrame(columns=[
+            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+            'Preparation Time', 'Rating'
+        ]),
+        "money_data": pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By']),
+        
+        # Credit and rewards system
+        "credit_data": pd.DataFrame({
+            'Name': council_members,
+            'Total_Credits': [200 for _ in council_members],
+            'RedeemedCredits': [50 if i % 2 == 0 else 0 for i in range(len(council_members))]
+        }),
+        "reward_data": pd.DataFrame({
+            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon', 'Movie Ticket'],
+            'Cost': [50, 30, 80, 120],
+            'Stock': [10, 20, 5, 3]
+        }),
+        "wheel_prizes": [
+            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
+            "Café Coupon", "Free Prom Ticket", "200 Credits"
+        ],
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),  # 7 colors for 7 prizes
+        "spinning": False,
+        "winner": None,
+        
+        # Calendar and announcements
+        "calendar_events": {},
+        "current_calendar_month": (date.today().year, date.today().month),
+        "announcements": [],
+        
+        # Group management
         "groups": [],
         "group_members": {},
         "group_meetings": {},
-        "calendar_events": {},
-        "announcements": []
+        "current_group": None,  # Track currently viewed group
+        
+        # Other app state
+        "allocation_count": 0
     }
+    
+    # Initialize any missing variables
     for key, default in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -2315,6 +2360,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
