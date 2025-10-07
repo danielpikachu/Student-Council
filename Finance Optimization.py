@@ -10,6 +10,7 @@ import time
 import os
 import json
 import bcrypt
+import string
 from pathlib import Path
 import random
 import shutil
@@ -297,22 +298,76 @@ def initialize_session_state():
         st.warning(f"Using default group data: {load_groups_msg}")
 
 # ------------------------------
-# Group Management Functions (New)
+# Configuration and Initialization - Group
+# ------------------------------
+# Define paths
+DATA_DIR = "data"
+GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
+GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+
+# Create directories if missing
+for dir_path in [DATA_DIR, BACKUP_DIR]:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path)
+
+# ------------------------------
+# Core Initialization
+# ------------------------------
+def initialize_group_system():
+    """Initialize groups system with G1-G8 if missing"""
+    # Load existing data or create defaults
+    success, msg = load_groups_data()
+    
+    # Force create G1-G8 if they don't exist
+    required_groups = [f"G{i}" for i in range(1, 9)]
+    missing_groups = [g for g in required_groups if g not in st.session_state.groups]
+    
+    if missing_groups:
+        st.info(f"Creating missing groups: {', '.join(missing_groups)}")
+        for group in missing_groups:
+            create_group(group, f"Default group {group}")
+    
+    # Ensure group codes exist
+    generate_and_save_group_codes()
+    
+    return success, msg
+
+# ------------------------------
+# Group Code Management
 # ------------------------------
 def generate_group_codes():
-    """Generate unique codes for groups G1-G8 and store them securely"""
-    import random
-    import string
-    
-    # Generate 6-character unique codes for each group
+    """Generate unique codes for groups G1-G8"""
     group_codes = {}
     for i in range(1, 9):  # G1 to G8
-        # Generate random code with letters and numbers
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         group_codes[f"G{i}"] = code
-    
     return group_codes
 
+def generate_and_save_group_codes():
+    """Create and save codes if they don't exist"""
+    if not os.path.exists(GROUP_CODES_FILE):
+        codes = generate_group_codes()
+        with open(GROUP_CODES_FILE, "w") as f:
+            json.dump(codes, f, indent=2)
+    return load_group_codes()
+
+def load_group_codes():
+    """Load codes with error handling"""
+    try:
+        with open(GROUP_CODES_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return generate_and_save_group_codes()  # Regenerate if load fails
+
+def verify_group_code(group_name, code):
+    """Check if code matches the group's assigned code"""
+    group_codes = load_group_codes()
+    return group_codes.get(group_name) == code
+
+# ------------------------------
+# Group Data Management
+# ------------------------------
 def load_groups_data():
     """Load group data with backup recovery"""
     try:
@@ -352,6 +407,20 @@ def load_groups_data():
         st.error(f"Error loading group data: {str(e)}")
         return False, f"Error loading group data: {str(e)}"
 
+def backup_data():
+    """Create backup of group data"""
+    if os.path.exists(GROUPS_FILE):
+        timestamp = date.today().strftime("%Y%m%d")
+        backup_file = os.path.join(BACKUP_DIR, f"groups.json.{timestamp}")
+        shutil.copy2(GROUPS_FILE, backup_file)
+        # Keep only last 5 backups
+        backups = sorted(
+            [f for f in os.listdir(BACKUP_DIR) if f.startswith("groups.json")],
+            reverse=True
+        )
+        for old_backup in backups[5:]:
+            os.remove(os.path.join(BACKUP_DIR, old_backup))
+
 def save_groups_data():
     """Save group data safely"""
     try:
@@ -370,6 +439,9 @@ def save_groups_data():
     except Exception as e:
         return False, f"Error saving group data: {str(e)}"
 
+# ------------------------------
+# Group Management Functions
+# ------------------------------
 def create_group(group_name, description=""):
     """Create a new group"""
     if not group_name:
@@ -386,6 +458,10 @@ def create_group(group_name, description=""):
 
 def delete_group(group_name):
     """Delete a group"""
+    # Prevent deletion of default groups G1-G8
+    if group_name in [f"G{i}" for i in range(1,9)]:
+        return False, f"Default groups (G1-G8) cannot be deleted"
+        
     if group_name not in st.session_state.groups:
         return False, f"Group '{group_name}' not found"
         
@@ -403,9 +479,10 @@ def add_group_member(group_name, member_name):
     if not member_name:
         return False, "Member name cannot be empty"
         
-    # Check if member exists in attendance
-    if member_name not in st.session_state.attendance['Name'].values:
-        return False, f"Member '{member_name}' not found in attendance records"
+    # Check if member exists in attendance (if attendance data exists)
+    if "attendance" in st.session_state and "Name" in st.session_state.attendance:
+        if member_name not in st.session_state.attendance['Name'].values:
+            return False, f"Member '{member_name}' not found in attendance records"
         
     if member_name in st.session_state.group_members[group_name]:
         return False, f"Member '{member_name}' is already in '{group_name}'"
@@ -494,6 +571,130 @@ def export_group_data(group_name):
     
     output.seek(0)
     return output, f"Successfully exported {group_name} data"
+
+# ------------------------------
+# Group Display and UI
+# ------------------------------
+def render_groups_tab():
+    """Render the complete groups tab with all features"""
+    st.header("📊 Group Management System")
+    
+    # Show initialization status
+    success, msg = initialize_group_system()
+    if success:
+        st.info(msg)
+    else:
+        st.error(msg)
+    
+    # Display all groups
+    st.subheader("All Groups")
+    
+    # Ensure groups are sorted with G1-G8 first
+    sorted_groups = sorted(
+        st.session_state.groups,
+        key=lambda x: (x[0] != 'G', int(x[1:]) if x.startswith('G') else 999)
+    )
+    
+    for group in sorted_groups:
+        with st.expander(f"Group: {group}", expanded=True):  # Expanded by default
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                # Show members
+                st.write("**Members:**")
+                members = st.session_state.group_members.get(group, [])
+                if members:
+                    for i, member in enumerate(members):
+                        col_m1, col_m2 = st.columns([4, 1])
+                        col_m1.write(f"- {member}")
+                        if st.button("Remove", key=f"remove_{group}_{i}", type="secondary", use_container_width=True):
+                            success, msg = remove_group_member(group, member)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                else:
+                    st.write("No members in this group yet")
+                
+                # Add member form
+                new_member = st.text_input(f"Add member to {group}", key=f"new_member_{group}")
+                if st.button(f"Add to {group}", key=f"add_btn_{group}"):
+                    success, msg = add_group_member(group, new_member)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+            
+            with col2:
+                # Group actions
+                st.write("**Actions**")
+                
+                # Meeting management
+                meeting_date = st.date_input(
+                    f"Meeting date for {group}", 
+                    key=f"meeting_date_{group}",
+                    value=date.today()
+                )
+                meeting_agenda = st.text_area(
+                    "Meeting agenda", 
+                    key=f"agenda_{group}",
+                    height=100
+                )
+                if st.button(f"Add Meeting", key=f"add_meeting_{group}"):
+                    success, msg = add_group_meeting(group, meeting_date, meeting_agenda)
+                    if success:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+                
+                # Export data
+                if st.button(f"Export Data", key=f"export_{group}"):
+                    output, msg = export_group_data(group)
+                    if output:
+                        st.download_button(
+                            label="Download Excel",
+                            data=output,
+                            file_name=f"{group}_data.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            key=f"download_{group}"
+                        )
+                    else:
+                        st.error(msg)
+        
+        # Show meetings if any exist
+        if st.session_state.group_meetings.get(group, []):
+            with st.expander(f"Past Meetings for {group}"):
+                for i, meeting in enumerate(st.session_state.group_meetings[group]):
+                    st.write(f"**Date:** {meeting['date']}")
+                    st.write(f"**Agenda:** {meeting['agenda']}")
+                    
+                    st.write("**Attendance:**")
+                    for member, attended in meeting['attendance'].items():
+                        attended_status = st.checkbox(
+                            member, 
+                            value=attended,
+                            key=f"attendance_{group}_{i}_{member}"
+                        )
+                        if attended_status != attended:
+                            update_group_meeting_attendance(group, i, member, attended_status)
+                            st.rerun()
+                    st.divider()
+    
+    # Admin section for group codes
+    with st.expander("🔑 Group Access Codes (Admin)", expanded=True):
+        st.subheader("Group Verification Codes")
+        codes = load_group_codes()
+        for group in [f"G{i}" for i in range(1,9)]:  # Show G1-G8 codes first
+            code = codes.get(group, "Not available")
+            st.text_input(
+                f"{group} Code",
+                value=code,
+                disabled=True,
+                key=f"code_{group}"
+            )
 
 # ------------------------------
 # Config Management
@@ -2495,32 +2696,6 @@ def render_main_app():
             else:
                 st.info("Select a group from the list to view details")
                 
-def render_groups_tab():
-    """Render the groups tab with proper group listing"""
-    st.header("Group Management")
-    
-    # Show diagnostics first for admins
-    group_diagnostics()
-    
-    # List all groups explicitly
-    st.subheader("All Groups")
-    for group in ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]:
-        with st.expander(f"Group {group}", expanded=False):
-            members = st.session_state.group_members.get(group, [])
-            st.write("Members:")
-            if members:
-                for member in members:
-                    st.write(f"- {member}")
-            else:
-                st.info("No members in this group yet")
-            
-            # Add member form (ensure unique key)
-            new_member = st.text_input(f"Add member to {group}", key=f"add_{group}")
-            if st.button(f"Add to {group}", key=f"btn_{group}"):
-                if new_member:
-                    add_group_member(group, new_member)
-                    st.success(f"Added {new_member} to {group}")
-                    st.rerun()
 # ------------------------------
 # Main Application Flow
 # ------------------------------
@@ -2534,6 +2709,9 @@ def main():
     # Ensure data is initialized
     if "attendance" not in st.session_state:
         safe_init_data()
+
+    if "groups" not in st.session_state:
+    initialize_group_system()
     
     # Render login/signup forms
     if not st.session_state.user:
@@ -2546,6 +2724,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
