@@ -974,7 +974,9 @@ def group_diagnostics():
                         codes = json.load(f)
                         st.write("Loaded group codes:", codes)
                 except Exception as e:
-                    st.error(f"Error loading codes: {str(e)}")def list_backups():
+                    st.error(f"Error loading codes: {str(e)}")
+                    
+def list_backups():
     """List all available backups in stuco_data/backups"""
     backup_folder = "stuco_data/backups"
     if not os.path.exists(backup_folder):
@@ -2544,6 +2546,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
