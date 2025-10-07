@@ -1,4 +1,5 @@
 import gspread
+from gspread.exceptions import APIError
 from oauth2client.service_account import ServiceAccountCredentials
 import streamlit as st
 import pandas as pd
@@ -484,7 +485,7 @@ def import_student_council_members_from_sheet(sheet):
         new_added = len(new_attendance_members)
         return True, f"Success! Imported {total_imported} members ({new_added} new)"
         
-    except gspread.APIError as e:
+    except gspread.exceptions.APIError as e:
         # Specific handling for duplicate sheet error
         if "A sheet with the name \"Members\" already exists" in str(e):
             return False, "The 'Members' worksheet already exists but there was a connection issue. Please try again."
@@ -2910,6 +2911,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
