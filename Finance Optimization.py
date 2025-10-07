@@ -1,205 +1,60 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import streamlit as st
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Wedge
-from datetime import datetime, date, timedelta
-import time
-import os
 import json
-import bcrypt
-import string
-from pathlib import Path
+import os
 import random
+import string
 import shutil
-from io import BytesIO, StringIO
+import base64  # Added missing import
+from datetime import date, datetime, timedelta
+import pandas as pd
+from io import BytesIO
+import bcrypt
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Wedge
+from pathlib import Path  # For consistent path handling
 
 # ------------------------------
-# App Configuration
+# Configuration Constants
 # ------------------------------
-st.set_page_config(
-    page_title="SCIS HQ US Stuco",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-st.markdown("""
-<style>
-.day-header {
-    text-align: center;
-    font-weight: bold;
-    padding: 8px;
-    background-color: #f0f2f6;
-    border-radius: 4px;
-}
-
-.calendar-day {
-    text-align: center;
-    padding: 10px 5px;
-    min-height: 80px;
-    border: 1px solid #e0e0e0;
-    border-radius: 4px;
-    margin: 2px;
-}
-
-.calendar-day.other-month {
-    background-color: #fafafa;
-    color: #999;
-}
-
-.calendar-day.today {
-    background-color: #e3f2fd;
-    border: 2px solid #2196f3;
-}
-
-.plan-text {
-    font-size: 0.8em;
-    margin-top: 5px;
-    color: #333;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-</style>
-""", unsafe_allow_html=True)
-# ------------------------------
-# Connect to Google Sheets
-# ------------------------------
-def connect_gsheets():
-    try:
-        # Get secrets from Streamlit
-        secrets = st.secrets["google_sheets"]
-        
-        # Create credentials dictionary
-        creds = {
-            "type": "service_account",
-            "client_email": secrets["service_account_email"],
-            "private_key_id": secrets["private_key_id"],
-            "client_id": "100000000000000000000", 
-            "private_key": secrets["private_key"].replace("\\n", "\n"),
-            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-            "token_uri": "https://oauth2.googleapis.com/token"
-        }
-        
-        # Authenticate using gspread's service_account_from_dict
-        client = gspread.service_account_from_dict(creds)
-        
-        # Open the sheet with explicit permission check
-        sheet = client.open_by_url(secrets["sheet_url"])
-        
-        # Test read access (to verify permissions)
-        try:
-            sheet.sheet1.get_all_records()  # Try reading the first tab
-            st.success("✅ Full access to Google Sheet confirmed!")
-            return sheet
-        except Exception as e:
-            st.error(f"❌ Can connect but no read access: {str(e)}")
-            return None
-            
-    except Exception as e:
-        st.error(f"❌ Connection failed: {str(e)}")
-        return None
-
-# ------------------------------
-# Secured File Management (With Backup)
-# ------------------------------
-def ensure_directory(path):
-    """Ensure directory exists (with error handling to prevent crashes)"""
-    try:
-        Path(path).mkdir(parents=True, exist_ok=True)
-        return True
-    except Exception as e:
-        st.error(f"Failed to create directory {path}: {str(e)}")
-        return False
-
-# Define data directories (absolute paths for consistency)
-DATA_DIR = os.path.abspath("stuco_data")
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-ensure_directory(DATA_DIR)
-ensure_directory(BACKUP_DIR)
-
-# Data file paths
-DATA_FILE = os.path.join(DATA_DIR, "app_data.json")
-USERS_FILE = os.path.join(DATA_DIR, "users.json")
-CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
-GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")  # New: Groups data file
-
-# Constants
+WELCOME_MESSAGE = "Welcome to Student Council Management System"
 ROLES = ["user", "admin", "credit_manager"]
 CREATOR_ROLE = "creator"
-WELCOME_MESSAGE = "Welcome to SCIS HQ US Stuco"
+DATA_DIR = "data"
+GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
+GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
 
 # ------------------------------
-# Automatic Backup System (Prevents Data Loss)
-# ------------------------------
-def backup_data():
-    """Create backups of all data files (keeps last 5 backups)"""
-    try:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]  # New: Include groups file
-        
-        # Create backup for each existing file
-        for file in backup_files:
-            if os.path.exists(file):
-                backup_path = os.path.join(BACKUP_DIR, f"{os.path.basename(file)}_{timestamp}")
-                shutil.copy2(file, backup_path)
-        
-        # Clean up old backups (keep only most recent 5)
-        for file_type in ["app_data.json", "users.json", "app_config.json", "groups.json"]:  # New: groups.json
-            backups = sorted(
-                [f for f in os.listdir(BACKUP_DIR) if f.startswith(file_type)],
-                reverse=True  # Newest first
-            )
-            for old_backup in backups[5:]:  # Delete backups beyond the 5th newest
-                os.remove(os.path.join(BACKUP_DIR, old_backup))
-                
-    except Exception as e:
-        st.warning(f"Backup warning (data still safe): {str(e)}")
-
-# ------------------------------
-# Initialization & Setup
+# Initialization Functions
 # ------------------------------
 def initialize_files():
-    """Ensure all required data files exist (with safe defaults)"""
-    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:  # New: Add groups file
-        if not Path(file).exists():
-            initial_data = {}
-            if file == CONFIG_FILE:
-                initial_data = {"show_signup": False, "app_version": "1.0.0"}
-            elif file == GROUPS_FILE:  # New: Initialize groups with default structure
-                initial_data = {
-                    "groups": [],
-                    "group_members": {},
-                    "group_meetings": {}
-                }
-            # Write to temp file first to avoid corruption
-            temp_file = f"{file}.tmp"
-            with open(temp_file, "w") as f:
-                json.dump(initial_data, f, indent=2)
-            os.replace(temp_file, file)
-    GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+    """Initialize all required files with proper path handling"""
+    # Create directories if missing
+    for dir_path in [DATA_DIR, BACKUP_DIR]:
+        Path(dir_path).mkdir(parents=True, exist_ok=True)
+    
+    # Initialize group codes file if missing
     if not Path(GROUP_CODES_FILE).exists():
         # Generate initial codes for G1-G8
         initial_codes = generate_group_codes()
-        temp_file = f"{GROUP_CODES_FILE}.tmp"
-        with open(temp_file, "w") as f:
+        with open(GROUP_CODES_FILE, "w") as f:
             json.dump(initial_codes, f, indent=2)
-        os.replace(temp_file, GROUP_CODES_FILE)
 
 def initialize_session_state():
-    """Initialize ALL session state variables with proper defaults"""
-    # Create council members list (will be used for initializing other data)
+    """Initialize session state variables with proper defaults"""
+    # Create council members list
     council_members = load_student_council_members() or ["Alice", "Bob", "Charlie", "Diana", "Evan"]
     
-    # Define ALL required session state variables with defaults
+    # Define required session state variables with defaults
     required_states = {
         # User authentication
         "user": None,
         "role": None,
         "login_attempts": 0,
-        "users": [],  # User data storage
+        "users": [],
         
         # Core app data
         "attendance": pd.DataFrame({
@@ -233,7 +88,7 @@ def initialize_session_state():
             "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
             "Café Coupon", "Free Prom Ticket", "200 Credits"
         ],
-        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),  # 7 colors for 7 prizes
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
         "spinning": False,
         "winner": None,
         
@@ -242,77 +97,29 @@ def initialize_session_state():
         "current_calendar_month": (date.today().year, date.today().month),
         "announcements": [],
         
-        # Group management
+        # Group management - REMOVED DUPLICATE INITIALIZATION
         "groups": [],
         "group_members": {},
         "group_meetings": {},
-        "current_group": None,  # Track currently viewed group
+        "current_group": None,
         
         # Other app state
         "allocation_count": 0,
-
-        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],  # Explicitly define groups
-        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_codes_initialized": False
     }
 
-    if "group_codes_initialized" not in st.session_state:
-        initialize_files()  # Ensure group codes file is created
-        st.session_state.group_codes_initialized = True
-        
     # Initialize any missing variables
     for key, default in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # 2. FIRST: Connect to Google Sheets
-    sheet = connect_gsheets()
-
-    # 3. THEN: Load permanent data from Google Sheets
-    if "users" not in st.session_state:
-        with st.spinner("Loading app data..."):
-            # Pass the connected 'sheet' to load_data()
-            load_success, load_msg = load_data(sheet)
-            
-            if load_success:
-                st.success(load_msg)  # Optional: Show success to admins
-            else:
-                # If load fails, use safe defaults
-                st.warning(f"Using backup data: {load_msg}")
-                
-                # Set default users (admin account)
-                st.session_state.users = [{
-                    "username": "admin",
-                    "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
-                    "role": "admin"
-                }]
-                
-                # Set default empty data for other tables
-                st.session_state.attendance = pd.DataFrame({"Name": []})
-                st.session_state.credit_data = pd.DataFrame({"Name": [], "Total_Credits": [], "RedeemedCredits": []})
-                st.session_state.reward_data = pd.DataFrame({"Reward": [], "Cost": [], "Stock": []})
-                st.session_state.meeting_names = []
-
-    # New: Load group data
-    load_groups_success, load_groups_msg = load_groups_data()
-    if not load_groups_success:
-        st.warning(f"Using default group data: {load_groups_msg}")
+    # Ensure group codes are initialized
+    if not st.session_state.group_codes_initialized:
+        initialize_files()
+        st.session_state.group_codes_initialized = True
 
 # ------------------------------
-# Configuration and Initialization - Group
-# ------------------------------
-# Define paths
-DATA_DIR = "data"
-GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
-GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-
-# Create directories if missing
-for dir_path in [DATA_DIR, BACKUP_DIR]:
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-# ------------------------------
-# Core Initialization
+# Group System Initialization
 # ------------------------------
 def initialize_group_system():
     """Initialize groups system with G1-G8 if missing"""
@@ -357,13 +164,22 @@ def load_group_codes():
     try:
         with open(GROUP_CODES_FILE, "r") as f:
             return json.load(f)
-    except:
+    except Exception as e:
+        st.error(f"Error loading group codes: {str(e)}")
         return generate_and_save_group_codes()  # Regenerate if load fails
 
 def verify_group_code(group_name, code):
     """Check if code matches the group's assigned code"""
     group_codes = load_group_codes()
     return group_codes.get(group_name) == code
+
+def get_group_from_code(code):
+    """Get group name from a code"""
+    group_codes = load_group_codes()
+    for group, group_code in group_codes.items():
+        if group_code == code:
+            return group
+    return None
 
 # ------------------------------
 # Group Data Management
@@ -596,7 +412,7 @@ def render_groups_tab():
     )
     
     for group in sorted_groups:
-        with st.expander(f"Group: {group}", expanded=True):  # Expanded by default
+        with st.expander(f"Group: {group}", expanded=True):
             col1, col2 = st.columns([3, 1])
             
             with col1:
@@ -683,11 +499,12 @@ def render_groups_tab():
                             st.rerun()
                     st.divider()
     
-    # Admin section for group codes
+    # Admin section for group codes - Ensure this is visible
     with st.expander("🔑 Group Access Codes (Admin)", expanded=True):
         st.subheader("Group Verification Codes")
         codes = load_group_codes()
-        for group in [f"G{i}" for i in range(1,9)]:  # Show G1-G8 codes first
+        # Show all groups, not just G1-G8
+        for group in sorted_groups:
             code = codes.get(group, "Not available")
             st.text_input(
                 f"{group} Code",
@@ -2706,21 +2523,18 @@ def main():
     # Initialize session state variables
     initialize_session_state()
     
-    # Ensure data is initialized
-    if "attendance" not in st.session_state:
-        safe_init_data()
-
-    if "groups" not in st.session_state:
+    # Ensure group system is initialized
+    if "groups" not in st.session_state or not st.session_state.groups:
         initialize_group_system()
     
-    # Render login/signup forms
-    if not st.session_state.user:
-        render_login_form()
-        render_signup_form()
-        render_welcome_screen()
-    else:
-        # Render main application after login
-        render_main_app()
+    # For testing - show groups in sidebar
+    with st.sidebar:
+        st.subheader("Debug Info")
+        st.write("Groups in system:", st.session_state.groups)
+        st.write("Group codes loaded:", len(load_group_codes()) > 0)
+    
+    # Render the groups tab
+    render_groups_tab()
 
 if __name__ == "__main__":
     main()
