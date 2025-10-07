@@ -1193,7 +1193,7 @@ def get_group_from_code(code):
     
 def show_group_codes():
     """Display group codes for admins"""
-    if is_admin():
+    if is_creator():
         with st.expander("Group Codes (Admin Only)", expanded=False):
             st.subheader("Current Group Codes")
             group_codes = load_group_codes()
@@ -2473,6 +2473,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
