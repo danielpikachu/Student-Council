@@ -248,7 +248,7 @@ def initialize_session_state():
         "current_group": None,  # Track currently viewed group
         
         # Other app state
-        "allocation_count": 0
+        "allocation_count": 0,
 
         "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],  # Explicitly define groups
         "group_members": {f"G{i}": [] for i in range(1,9)},
@@ -2544,6 +2544,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
