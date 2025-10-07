@@ -2711,7 +2711,7 @@ def main():
         safe_init_data()
 
     if "groups" not in st.session_state:
-    initialize_group_system()
+        initialize_group_system()
     
     # Render login/signup forms
     if not st.session_state.user:
@@ -2724,16 +2724,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
