@@ -156,7 +156,8 @@ def initialize_session_state():
         "current_calendar_month": (date.today().year, date.today().month),  # For calendar navigation
         "groups": [],
         "group_members": {},
-        "group_meetings": {}
+        "group_meetings": {},
+        "calendar_events": {}  # Add this line to initialize calendar_events
     }
     for key, default in required_states.items():
         if key not in st.session_state:
@@ -2313,4 +2314,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
