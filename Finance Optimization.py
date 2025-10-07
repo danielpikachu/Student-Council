@@ -2275,8 +2275,12 @@ def render_main_app():
                             available_members,
                             key=f"add_{group_name}"
                         )
-                        if st.button("Add Member", type="secondary"):
-                            success, msg = add_group_member(group_name, new_member)
+                    if st.button(
+                        "Add Member", 
+                        type="secondary",
+                        key=f"add_member_{group_name}"  # Unique key using group name
+                    ):
+                        success, msg = add_group_member(group_name, new_member)
                             if success:
                                 st.success(msg)
                                 st.rerun()
@@ -2399,6 +2403,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
