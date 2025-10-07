@@ -15,6 +15,7 @@ from pathlib import Path
 import random
 import shutil
 from io import BytesIO, StringIO
+import base64
 
 # ------------------------------
 # App Configuration
@@ -301,7 +302,6 @@ def initialize_session_state():
 # Configuration and Initialization - Group
 # ------------------------------
 # Define paths
-DATA_DIR = "data"
 GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
 GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
@@ -450,9 +450,12 @@ def create_group(group_name, description=""):
     if group_name in st.session_state.groups:
         return False, f"Group '{group_name}' already exists"
         
+    # Add group with proper initialization
     st.session_state.groups.append(group_name)
-    st.session_state.group_members[group_name] = []
-    st.session_state.group_meetings[group_name] = []
+    if group_name not in st.session_state.group_members:
+        st.session_state.group_members[group_name] = []
+    if group_name not in st.session_state.group_meetings:
+        st.session_state.group_meetings[group_name] = []
     
     return save_groups_data()
 
@@ -2592,18 +2595,17 @@ def render_main_app():
                             available_members,
                             key=f"add_{group_name}"
                         )
-                    if st.button(
-                        "Add Member", 
-                        type="secondary",
-                        key=f"add_member_{group_name}"  # Unique key
-                    ):
-                        # Make sure this code is indented exactly once (4 spaces) under the if statement
-                        success, msg = add_group_member(group_name, new_member)
-                        if success:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                        if st.button(
+                            "Add Member", 
+                            type="secondary",
+                            key=f"add_member_{group_name}"
+                        ):
+                            success, msg = add_group_member(group_name, new_member)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
                     else:
                         st.info("All members are already in this group")
                 
@@ -2724,3 +2726,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
