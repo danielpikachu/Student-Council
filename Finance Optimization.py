@@ -178,6 +178,14 @@ def initialize_files():
             with open(temp_file, "w") as f:
                 json.dump(initial_data, f, indent=2)
             os.replace(temp_file, file)
+    GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+    if not Path(GROUP_CODES_FILE).exists():
+        # Generate initial codes for G1-G8
+        initial_codes = generate_group_codes()
+        temp_file = f"{GROUP_CODES_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(initial_codes, f, indent=2)
+        os.replace(temp_file, GROUP_CODES_FILE)
 
 def initialize_session_state():
     """Initialize ALL session state variables with proper defaults"""
@@ -284,6 +292,20 @@ def initialize_session_state():
 # ------------------------------
 # Group Management Functions (New)
 # ------------------------------
+def generate_group_codes():
+    """Generate unique codes for groups G1-G8 and store them securely"""
+    import random
+    import string
+    
+    # Generate 6-character unique codes for each group
+    group_codes = {}
+    for i in range(1, 9):  # G1 to G8
+        # Generate random code with letters and numbers
+        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        group_codes[f"G{i}"] = code
+    
+    return group_codes
+
 def load_groups_data():
     """Load group data with backup recovery"""
     try:
@@ -859,7 +881,7 @@ def render_login_form():
         return False
 
 def render_signup_form():
-    """Render signup form in sidebar if enabled"""
+    """Render signup form with group code verification"""
     config = load_config()
     if not config.get("show_signup", False):
         return
@@ -870,7 +892,17 @@ def render_signup_form():
         new_password = st.text_input("Choose Password", type="password", key="signup_password")
         confirm_password = st.text_input("Confirm Password", type="password", key="signup_confirm")
         
+        group_code = st.text_input("Group Code (G1-G8)", key="signup_group_code", 
+                                  placeholder="Enter your 6-character group code")
+        
         if st.button("Create Account", key="signup_btn"):
+            # Validate group code first
+            group_name = get_group_from_code(group_code)
+            if not group_name:
+                st.error("Invalid group code. Please check your code and try again.")
+                return
+            
+            # Existing validation
             if not new_username or not new_password:
                 st.error("Please fill in all fields")
                 return
@@ -883,9 +915,12 @@ def render_signup_form():
                 st.error("Passwords do not match")
                 return
             
+            # Create user with group association
             success, msg = save_user(new_username, new_password)
             if success:
-                st.success(f"{msg} You can now log in.")
+                # Add user to their group
+                add_group_member(group_name, new_username)
+                st.success(f"{msg} You've been added to {group_name}!")
             else:
                 st.error(msg)
 
@@ -1133,6 +1168,40 @@ def draw_wheel(rotation_angle=0):
     
     return fig
 
+def load_group_codes():
+    """Load group codes from file"""
+    GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+    try:
+        with open(GROUP_CODES_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        st.error(f"Error loading group codes: {str(e)}")
+        return {}
+
+def verify_group_code(group_name, code):
+    """Check if code matches the group's assigned code"""
+    group_codes = load_group_codes()
+    return group_codes.get(group_name) == code
+
+def get_group_from_code(code):
+    """Get group name from a code"""
+    group_codes = load_group_codes()
+    for group, group_code in group_codes.items():
+        if group_code == code:
+            return group
+    return None
+    
+def show_group_codes():
+    """Display group codes for admins"""
+    if is_admin():
+        with st.expander("Group Codes (Admin Only)", expanded=False):
+            st.subheader("Current Group Codes")
+            group_codes = load_group_codes()
+            if group_codes:
+                for group, code in group_codes.items():
+                    st.text(f"{group}: {code}")
+            else:
+                st.info("No group codes found")
 # ------------------------------
 # Meeting & Attendance Management
 # ------------------------------
@@ -2404,6 +2473,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
