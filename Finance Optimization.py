@@ -404,37 +404,42 @@ def import_student_council_members_from_github(github_raw_url):
         return False, f"Import error: {str(e)}"
 
 def import_student_council_members_from_sheet(sheet):
-    """Import members directly from Google Sheet 'Members' worksheet (fixes NameError)"""
+    """Import members directly from Google Sheet 'Members' worksheet with duplicate check"""
     try:
         if not sheet:
             return False, "No Google Sheet connection available"
             
-        # Step 1: Check if "Members" worksheet exists (create if missing)
+        # Step 1: Check if "Members" worksheet exists with proper error handling
+        members_sheet = None
         try:
+            # First, try to get existing worksheet
             members_sheet = sheet.worksheet("Members")
         except gspread.WorksheetNotFound:
-            # Create empty "Members" worksheet with header if it doesn't exist
+            # Only create if it truly doesn't exist
             members_sheet = sheet.add_worksheet(title="Members", rows="200", cols="1")
-            members_sheet.append_row(["Name"])  # Add required "Name" header
-            return False, "Created empty 'Members' worksheet → Add student names there first (column A)"
+            members_sheet.append_row(["Name"])  # Add header
+        except gspread.APIError as e:
+            # Handle specific API error for duplicate sheets
+            if "A sheet with the name \"Members\" already exists" in str(e):
+                # If it exists but threw an error, try to get it again
+                members_sheet = sheet.worksheet("Members")
+            else:
+                return False, f"Google Sheets API error: {str(e)}"
         
         # Step 2: Extract and clean member names from the sheet
-        members_data = members_sheet.get_all_values()  # Get all rows from "Members" sheet
+        members_data = members_sheet.get_all_values()
         
-        # Skip if only the header row exists (no members added yet)
+        # Skip if only header exists
         if len(members_data) <= 1:
             return False, "No members found → Add names to the 'Members' worksheet (below the 'Name' header)"
         
-        # Extract valid names (skip header, remove blanks/empty rows)
-        valid_members = []
-        for row in members_data[1:]:  # Start from row 2 (skip header row 1)
-            if row and len(row[0].strip()) > 0:  # Only keep non-empty names
-                valid_members.append(row[0].strip())
+        # Extract valid names (skip header, remove blanks)
+        valid_members = [row[0].strip() for row in members_data[1:] if row and row[0].strip()]
         
         if not valid_members:
-            return False, "No valid names found in the 'Members' worksheet (check for typos/blanks)"
+            return False, "No valid names found in the 'Members' worksheet"
         
-        # Step 3: Backup data before making changes (prevents data loss)
+        # Step 3: Backup data before making changes
         backup_data()
         
         # Step 4: Sync new members to Attendance records
@@ -442,16 +447,13 @@ def import_student_council_members_from_sheet(sheet):
         new_members_for_attendance = [name for name in valid_members if name not in current_attendance_names]
         
         if new_members_for_attendance:
-            # Create new rows for attendance (default to "not present" for all meetings)
             new_attendance_rows = []
             for name in new_members_for_attendance:
                 row = {"Name": name}
-                # Add False (not present) for every existing meeting
                 for meeting in st.session_state.meeting_names:
                     row[meeting] = False
                 new_attendance_rows.append(row)
             
-            # Add new members to attendance DataFrame
             st.session_state.attendance = pd.concat(
                 [st.session_state.attendance, pd.DataFrame(new_attendance_rows)],
                 ignore_index=True
@@ -462,31 +464,27 @@ def import_student_council_members_from_sheet(sheet):
         new_members_for_credits = [name for name in valid_members if name not in current_credit_names]
         
         if new_members_for_credits:
-            # Create new credit rows (default to 0 credits)
             new_credit_rows = pd.DataFrame({
                 "Name": new_members_for_credits,
-                "Total_Credits": [0 for _ in new_members_for_credits],  # Start with 0 credits
-                "RedeemedCredits": [0 for _ in new_members_for_credits]  # No redeemed credits initially
+                "Total_Credits": [0] * len(new_members_for_credits),
+                "RedeemedCredits": [0] * len(new_members_for_credits)
             })
             
-            # Add new members to credit DataFrame
             st.session_state.credit_data = pd.concat(
                 [st.session_state.credit_data, new_credit_rows],
                 ignore_index=True
             )
         
-        # Step 6: Save changes to Google Sheets and local storage
+        # Step 6: Save changes
         save_success, save_msg = save_data(sheet)
         if not save_success:
             return False, f"Members imported but failed to save: {save_msg}"
         
-        # Success: Return count of imported members
         total_imported = len(valid_members)
         new_added = len(new_members_for_attendance)
-        return True, f"Success! Imported {total_imported} members ({new_added} new members added to attendance/credits)"
+        return True, f"Success! Imported {total_imported} members ({new_added} new members added)"
         
     except Exception as e:
-        # Catch all errors and return clear message
         return False, f"Google Sheets import failed: {str(e)}"
 
 
@@ -2907,5 +2905,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
