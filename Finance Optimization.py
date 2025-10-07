@@ -63,11 +63,61 @@ st.markdown("""
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+.role-badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.group-card {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.group-header {
+    font-weight: bold;
+    font-size: 1.2em;
+    margin-bottom: 10px;
+}
+
+.meeting-item {
+    background-color: #ffffff;
+    border-left: 3px solid #2196f3;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# Connect to Google Sheets
+# File Path Configuration
+# ------------------------------
+DATA_DIR = os.path.abspath("stuco_data")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+DATA_FILE = os.path.join(DATA_DIR, "app_data.json")
+USERS_FILE = os.path.join(DATA_DIR, "users.json")
+CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
+GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
+GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+
+# Ensure directories exist
+for dir_path in [DATA_DIR, BACKUP_DIR]:
+    if not os.path.exists(dir_path):
+        os.makedirs(dir_path, exist_ok=True)
+
+# Constants
+ROLES = ["user", "admin", "credit_manager"]
+CREATOR_ROLE = "creator"
+WELCOME_MESSAGE = "Welcome to SCIS HQ US Stuco"
+
+# ------------------------------
+# Google Sheets Connection
 # ------------------------------
 def connect_gsheets():
     try:
@@ -91,13 +141,13 @@ def connect_gsheets():
         # Open the sheet with explicit permission check
         sheet = client.open_by_url(secrets["sheet_url"])
         
-        # Test read access (to verify permissions)
+        # Test read access
         try:
-            sheet.sheet1.get_all_records()  # Try reading the first tab
-            st.success("✅ Full access to Google Sheet confirmed!")
+            sheet.sheet1.get_all_records()
+            st.success("✅ Connected to Google Sheet")
             return sheet
         except Exception as e:
-            st.error(f"❌ Can connect but no read access: {str(e)}")
+            st.error(f"❌ Read access failed: {str(e)}")
             return None
             
     except Exception as e:
@@ -105,42 +155,13 @@ def connect_gsheets():
         return None
 
 # ------------------------------
-# Secured File Management (With Backup)
-# ------------------------------
-def ensure_directory(path):
-    """Ensure directory exists (with error handling to prevent crashes)"""
-    try:
-        Path(path).mkdir(parents=True, exist_ok=True)
-        return True
-    except Exception as e:
-        st.error(f"Failed to create directory {path}: {str(e)}")
-        return False
-
-# Define data directories (absolute paths for consistency)
-DATA_DIR = os.path.abspath("stuco_data")  # Keep only this DATA_DIR definition
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-ensure_directory(DATA_DIR)
-ensure_directory(BACKUP_DIR)
-
-# Data file paths
-DATA_FILE = os.path.join(DATA_DIR, "app_data.json")
-USERS_FILE = os.path.join(DATA_DIR, "users.json")
-CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
-GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")  # New: Groups data file
-
-# Constants
-ROLES = ["user", "admin", "credit_manager"]
-CREATOR_ROLE = "creator"
-WELCOME_MESSAGE = "Welcome to SCIS HQ US Stuco"
-
-# ------------------------------
-# Automatic Backup System (Prevents Data Loss)
+# Backup System
 # ------------------------------
 def backup_data():
     """Create backups of all data files (keeps last 5 backups)"""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]  # Include groups file
+        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]
         
         # Create backup for each existing file
         for file in backup_files:
@@ -154,36 +175,38 @@ def backup_data():
                 [f for f in os.listdir(BACKUP_DIR) if f.startswith(file_type)],
                 reverse=True  # Newest first
             )
-            for old_backup in backups[5:]:  # Delete backups beyond the 5th newest
+            for old_backup in backups[5:]:
                 os.remove(os.path.join(BACKUP_DIR, old_backup))
                 
     except Exception as e:
-        st.warning(f"Backup warning (data still safe): {str(e)}")
+        st.warning(f"Backup warning: {str(e)}")
 
 # ------------------------------
-# Initialization & Setup
+# Initialization Functions
 # ------------------------------
 def initialize_files():
-    """Ensure all required data files exist (with safe defaults)"""
-    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:  # Add groups file
+    """Ensure all required data files exist with safe defaults"""
+    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:
         if not Path(file).exists():
             initial_data = {}
             if file == CONFIG_FILE:
                 initial_data = {"show_signup": False, "app_version": "1.0.0"}
-            elif file == GROUPS_FILE:  # Initialize groups with default structure
+            elif file == GROUPS_FILE:
                 initial_data = {
-                    "groups": [],
-                    "group_members": {},
-                    "group_meetings": {}
+                    "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+                    "group_members": {f"G{i}": [] for i in range(1,9)},
+                    "group_meetings": {f"G{i}": [] for i in range(1,9)},
+                    "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)}
                 }
+            
             # Write to temp file first to avoid corruption
             temp_file = f"{file}.tmp"
             with open(temp_file, "w") as f:
                 json.dump(initial_data, f, indent=2)
             os.replace(temp_file, file)
-    GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+    
+    # Initialize group codes if missing
     if not Path(GROUP_CODES_FILE).exists():
-        # Generate initial codes for G1-G8
         initial_codes = generate_group_codes()
         temp_file = f"{GROUP_CODES_FILE}.tmp"
         with open(temp_file, "w") as f:
@@ -191,17 +214,17 @@ def initialize_files():
         os.replace(temp_file, GROUP_CODES_FILE)
 
 def initialize_session_state():
-    """Initialize ALL session state variables with proper defaults"""
-    # Create council members list (will be used for initializing other data)
-    council_members = load_student_council_members() or ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+    """Initialize all session state variables with proper defaults"""
+    # Default council members
+    council_members = ["Alice", "Bob", "Charlie", "Diana", "Evan"]
     
-    # Define ALL required session state variables with defaults
+    # Define all required session state variables
     required_states = {
         # User authentication
         "user": None,
         "role": None,
         "login_attempts": 0,
-        "users": [],  # User data storage
+        "users": [],
         
         # Core app data
         "attendance": pd.DataFrame({
@@ -235,7 +258,7 @@ def initialize_session_state():
             "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
             "Café Coupon", "Free Prom Ticket", "200 Credits"
         ],
-        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),  # 7 colors for 7 prizes
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
         "spinning": False,
         "winner": None,
         
@@ -245,93 +268,52 @@ def initialize_session_state():
         "announcements": [],
         
         # Group management
-        "groups": [],
-        "group_members": {},
-        "group_meetings": {},
-        "current_group": None,  # Track currently viewed group
+        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_meetings": {f"G{i}": [] for i in range(1,9)},
+        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
+        "current_group": None,
         
         # Other app state
         "allocation_count": 0,
-
-        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],  # Explicitly define groups
-        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_codes_initialized": False,
+        "initialized": False
     }
 
-    if "group_codes_initialized" not in st.session_state:
-        initialize_files()  # Ensure group codes file is created
-        st.session_state.group_codes_initialized = True
-        
     # Initialize any missing variables
     for key, default in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # 2. FIRST: Connect to Google Sheets
-    sheet = connect_gsheets()
-
-    # 3. THEN: Load permanent data from Google Sheets
-    if "users" not in st.session_state:
-        with st.spinner("Loading app data..."):
-            # Pass the connected 'sheet' to load_data()
-            load_success, load_msg = load_data(sheet)
-            
-            if load_success:
-                st.success(load_msg)  # Optional: Show success to admins
-            else:
-                # If load fails, use safe defaults
-                st.warning(f"Using backup data: {load_msg}")
-                
-                # Set default users (admin account)
-                st.session_state.users = [{
-                    "username": "admin",
-                    "password": bcrypt.hashpw(b"password123", bcrypt.gensalt()).decode(),
-                    "role": "admin"
-                }]
-                
-                # Set default empty data for other tables
-                st.session_state.attendance = pd.DataFrame({"Name": []})
-                st.session_state.credit_data = pd.DataFrame({"Name": [], "Total_Credits": [], "RedeemedCredits": []})
-                st.session_state.reward_data = pd.DataFrame({"Reward": [], "Cost": [], "Stock": []})
-                st.session_state.meeting_names = []
-
-    # New: Load group data
-    load_groups_success, load_groups_msg = load_groups_data()
-    if not load_groups_success:
-        st.warning(f"Using default group data: {load_groups_msg}")
-
-# ------------------------------
-# Configuration and Initialization - Group
-# ------------------------------
-# Define paths (removed duplicate DATA_DIR)
-GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
-BACKUP_DIR = os.path.join(DATA_DIR, "backups")
-
-# Create directories if missing
-for dir_path in [DATA_DIR, BACKUP_DIR]:
-    if not os.path.exists(dir_path):
-        os.makedirs(dir_path)
-
-# ------------------------------
-# Core Initialization
-# ------------------------------
 def initialize_group_system():
-    """Initialize groups system with G1-G8 if missing"""
-    # Load existing data or create defaults
-    success, msg = load_groups_data()
-    
-    # Force create G1-G8 if they don't exist
-    required_groups = [f"G{i}" for i in range(1, 9)]
-    missing_groups = [g for g in required_groups if g not in st.session_state.groups]
-    
-    if missing_groups:
-        st.info(f"Creating missing groups: {', '.join(missing_groups)}")
-        for group in missing_groups:
-            create_group(group, f"Default group {group}")
-    
-    # Ensure group codes exist
-    generate_and_save_group_codes()
-    
-    return success, msg
+    """Initialize group system with validation checks"""
+    try:
+        # Check if group data exists, if not create default
+        if not st.session_state.groups:
+            st.session_state.groups = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]
+            
+        # Ensure group members and meetings structures exist for all groups
+        for group in st.session_state.groups:
+            if group not in st.session_state.group_members:
+                st.session_state.group_members[group] = []
+            if group not in st.session_state.group_meetings:
+                st.session_state.group_meetings[group] = []
+            if group not in st.session_state.group_descriptions:
+                st.session_state.group_descriptions[group] = f"Group {group}"
+                
+        # Verify group codes exist
+        if not st.session_state.group_codes_initialized:
+            codes = load_group_codes()
+            # Check if all default groups have codes
+            for group in [f"G{i}" for i in range(1,9)]:
+                if group not in codes:
+                    codes = generate_group_codes()
+                    break
+            st.session_state.group_codes_initialized = True
+            
+        return True, "Group system initialized successfully"
+    except Exception as e:
+        return False, f"Error initializing group system: {str(e)}"
 
 # ------------------------------
 # Group Code Management
@@ -344,26 +326,30 @@ def generate_group_codes():
         group_codes[f"G{i}"] = code
     return group_codes
 
-def generate_and_save_group_codes():
-    """Create and save codes if they don't exist"""
-    if not os.path.exists(GROUP_CODES_FILE):
-        codes = generate_group_codes()
-        with open(GROUP_CODES_FILE, "w") as f:
-            json.dump(codes, f, indent=2)
-    return load_group_codes()
-
 def load_group_codes():
     """Load codes with error handling"""
     try:
         with open(GROUP_CODES_FILE, "r") as f:
             return json.load(f)
     except:
-        return generate_and_save_group_codes()  # Regenerate if load fails
+        # Regenerate if load fails
+        codes = generate_group_codes()
+        with open(GROUP_CODES_FILE, "w") as f:
+            json.dump(codes, f, indent=2)
+        return codes
 
 def verify_group_code(group_name, code):
     """Check if code matches the group's assigned code"""
     group_codes = load_group_codes()
     return group_codes.get(group_name) == code
+
+def get_group_from_code(code):
+    """Get group name from a code"""
+    group_codes = load_group_codes()
+    for group, group_code in group_codes.items():
+        if group_code == code:
+            return group
+    return None
 
 # ------------------------------
 # Group Data Management
@@ -379,6 +365,7 @@ def load_groups_data():
             st.session_state.groups = group_data.get("groups", [])
             st.session_state.group_members = group_data.get("group_members", {})
             st.session_state.group_meetings = group_data.get("group_meetings", {})
+            st.session_state.group_descriptions = group_data.get("group_descriptions", {})
             return True, "Group data loaded successfully"
         
         # Recover from backup if groups file is missing
@@ -396,30 +383,18 @@ def load_groups_data():
             st.session_state.groups = group_data.get("groups", [])
             st.session_state.group_members = group_data.get("group_members", {})
             st.session_state.group_meetings = group_data.get("group_meetings", {})
+            st.session_state.group_descriptions = group_data.get("group_descriptions", {})
             return True, "Group data restored from backup"
                 
         # Fallback to default if no backups
-        st.session_state.groups = []
-        st.session_state.group_members = {}
-        st.session_state.group_meetings = {}
-        return True, "No group data found - initialized with defaults"
+        st.session_state.groups = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]
+        st.session_state.group_members = {f"G{i}": [] for i in range(1,9)}
+        st.session_state.group_meetings = {f"G{i}": [] for i in range(1,9)}
+        st.session_state.group_descriptions = {f"G{i}": f"Default group {i}" for i in range(1,9)}
+        return True, "Initialized with default group data"
     except Exception as e:
         st.error(f"Error loading group data: {str(e)}")
         return False, f"Error loading group data: {str(e)}"
-
-def backup_data():
-    """Create backup of group data"""
-    if os.path.exists(GROUPS_FILE):
-        timestamp = date.today().strftime("%Y%m%d")
-        backup_file = os.path.join(BACKUP_DIR, f"groups.json.{timestamp}")
-        shutil.copy2(GROUPS_FILE, backup_file)
-        # Keep only last 5 backups
-        backups = sorted(
-            [f for f in os.listdir(BACKUP_DIR) if f.startswith("groups.json")],
-            reverse=True
-        )
-        for old_backup in backups[5:]:
-            os.remove(os.path.join(BACKUP_DIR, old_backup))
 
 def save_groups_data():
     """Save group data safely"""
@@ -428,7 +403,8 @@ def save_groups_data():
         group_data = {
             "groups": st.session_state.groups,
             "group_members": st.session_state.group_members,
-            "group_meetings": st.session_state.group_meetings
+            "group_meetings": st.session_state.group_meetings,
+            "group_descriptions": st.session_state.group_descriptions
         }
         
         temp_file = f"{GROUPS_FILE}.tmp"
@@ -450,12 +426,14 @@ def create_group(group_name, description=""):
     if group_name in st.session_state.groups:
         return False, f"Group '{group_name}' already exists"
         
-    # Add group with proper initialization of all related structures
+    # Add group with proper initialization
     st.session_state.groups.append(group_name)
     if group_name not in st.session_state.group_members:
         st.session_state.group_members[group_name] = []
     if group_name not in st.session_state.group_meetings:
         st.session_state.group_meetings[group_name] = []
+    if group_name not in st.session_state.group_descriptions:
+        st.session_state.group_descriptions[group_name] = description if description else f"Group {group_name}"
     
     return save_groups_data()
 
@@ -471,7 +449,16 @@ def delete_group(group_name):
     st.session_state.groups.remove(group_name)
     del st.session_state.group_members[group_name]
     del st.session_state.group_meetings[group_name]
+    del st.session_state.group_descriptions[group_name]
     
+    return save_groups_data()
+
+def update_group_description(group_name, description):
+    """Update group description"""
+    if group_name not in st.session_state.groups:
+        return False, f"Group '{group_name}' not found"
+        
+    st.session_state.group_descriptions[group_name] = description
     return save_groups_data()
 
 def add_group_member(group_name, member_name):
@@ -482,10 +469,12 @@ def add_group_member(group_name, member_name):
     if not member_name:
         return False, "Member name cannot be empty"
         
-    # Check if member exists in attendance (if attendance data exists)
-    if "attendance" in st.session_state and "Name" in st.session_state.attendance:
+    # Check if member exists in attendance records
+    if "Name" in st.session_state.attendance and not st.session_state.attendance.empty:
         if member_name not in st.session_state.attendance['Name'].values:
-            return False, f"Member '{member_name}' not found in attendance records"
+            # Add option to override check for admins
+            if not is_admin():
+                return False, f"Member '{member_name}' not found in attendance records"
         
     if member_name in st.session_state.group_members[group_name]:
         return False, f"Member '{member_name}' is already in '{group_name}'"
@@ -566,7 +555,7 @@ def export_group_data(group_name):
             meetings_df = pd.DataFrame(meetings_data)
             meetings_df.to_excel(writer, sheet_name="Meetings", index=False)
             
-            # Detailed attendance sheet
+            # Detailed attendance sheets
             for i, meeting in enumerate(st.session_state.group_meetings[group_name]):
                 attendance_data = [{"Member": m, "Attended": a} for m, a in meeting["attendance"].items()]
                 attendance_df = pd.DataFrame(attendance_data)
@@ -576,11 +565,228 @@ def export_group_data(group_name):
     return output, f"Successfully exported {group_name} data"
 
 # ------------------------------
-# Group Display and UI
+# User Authentication
 # ------------------------------
-def render_groups_tab():
-    """Render the complete groups tab with all features"""
-    st.header("📊 Group Management System")
+def load_users():
+    """Load user data from file"""
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        st.error(f"Error loading users: {str(e)}")
+        return {}
+
+def save_users(users):
+    """Save user data to file"""
+    try:
+        backup_data()
+        temp_file = f"{USERS_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(users, f, indent=2)
+        os.replace(temp_file, USERS_FILE)
+        return True
+    except Exception as e:
+        st.error(f"Error saving users: {str(e)}")
+        return False
+
+def authenticate(username, password):
+    """Authenticate user"""
+    users = load_users()
+    if username in users:
+        if bcrypt.checkpw(password.encode(), users[username]["password_hash"].encode()):
+            return True, users[username]["role"]
+        return False, "Incorrect password"
+    return False, "User not found"
+
+def register_user(username, password, role="user"):
+    """Register new user"""
+    if role not in ROLES:
+        return False, "Invalid role"
+        
+    users = load_users()
+    if username in users:
+        return False, "Username already exists"
+        
+    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    users[username] = {
+        "password_hash": hashed_pw,
+        "role": role,
+        "created_at": datetime.now().isoformat(),
+        "last_login": None
+    }
+    return save_users(users), "User registered successfully"
+
+def hash_password(password):
+    """Hash a password for secure storage"""
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password, hashed_password):
+    """Verify a password against its hash"""
+    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
+
+def update_user_login(username):
+    """Update last login timestamp (safe write)"""
+    try:
+        users = load_users()
+        if username in users:
+            users[username]["last_login"] = datetime.now().isoformat()
+            temp_file = f"{USERS_FILE}.tmp"
+            with open(temp_file, "w") as f:
+                json.dump(users, f, indent=2)
+            os.replace(temp_file, USERS_FILE)
+    except Exception as e:
+        st.warning(f"Could not update login time: {str(e)}")
+
+def update_user_role(username, new_role):
+    """Update a user's role (with validation)"""
+    valid_roles = ROLES + [CREATOR_ROLE]
+    if new_role not in valid_roles:
+        return False, f"Invalid role. Choose: {', '.join(valid_roles)}"
+        
+    try:
+        backup_data()  # Backup before changing role
+        users = load_users()
+        if username not in users:
+            return False, "User not found"
+        
+        users[username]["role"] = new_role
+        temp_file = f"{USERS_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(users, f, indent=2)
+        os.replace(temp_file, USERS_FILE)
+        return True, f"Role updated to {new_role}"
+    except Exception as e:
+        return False, f"Error updating role: {str(e)}"
+
+def delete_user(username):
+    """Delete a user safely (with backups)"""
+    try:
+        backup_data()  # Backup before deleting
+        users = load_users()
+        if username not in users:
+            return False, "User not found"
+        
+        del users[username]
+        temp_file = f"{USERS_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(users, f, indent=2)
+        os.replace(temp_file, USERS_FILE)
+        return True, "User deleted successfully"
+    except Exception as e:
+        return False, f"Error deleting user: {str(e)}"
+
+# ------------------------------
+# Main Application Functions
+# ------------------------------
+def load_student_council_members():
+    """Load council members from attendance data"""
+    try:
+        if not st.session_state.attendance.empty and "Name" in st.session_state.attendance:
+            return st.session_state.attendance["Name"].tolist()
+        return None
+    except:
+        return None
+
+def load_data(sheet):
+    """Load application data"""
+    try:
+        # If we have a Google Sheet connection, use it
+        if sheet:
+            # Load attendance data
+            attendance_sheet = sheet.worksheet("Attendance")
+            attendance_data = attendance_sheet.get_all_records()
+            st.session_state.attendance = pd.DataFrame(attendance_data)
+            
+            # Load credit data
+            credit_sheet = sheet.worksheet("Credits")
+            credit_data = credit_sheet.get_all_records()
+            st.session_state.credit_data = pd.DataFrame(credit_data)
+            
+            return True, "Data loaded from Google Sheets"
+        
+        # Fallback to local data
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r") as f:
+                data = json.load(f)
+                
+            # Convert back to DataFrames
+            for key, value in data.items():
+                if key in st.session_state and isinstance(st.session_state[key], pd.DataFrame):
+                    st.session_state[key] = pd.DataFrame(value)
+                else:
+                    st.session_state[key] = value
+                    
+            return True, "Data loaded from local storage"
+            
+        return True, "No existing data found - using defaults"
+        
+    except Exception as e:
+        return False, f"Error loading data: {str(e)}"
+
+def save_data(sheet=None):
+    """Save application data"""
+    try:
+        backup_data()
+        data_to_save = {}
+        
+        # Convert DataFrames to dictionaries
+        for key in st.session_state:
+            if isinstance(st.session_state[key], pd.DataFrame):
+                data_to_save[key] = st.session_state[key].to_dict('records')
+            elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
+                data_to_save[key] = st.session_state[key]
+                
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(data_to_save, f, indent=2)
+        os.replace(temp_file, DATA_FILE)
+        
+        # If sheet connection is provided, save to Google Sheets too
+        if sheet:
+            try:
+                # Save attendance
+                att_tab = sheet.worksheet("attendance")
+                att_tab.update([st.session_state.attendance.columns.tolist()] + st.session_state.attendance.values.tolist())
+            except:
+                pass
+                
+        return True, "Data saved successfully"
+        
+    except Exception as e:
+        return False, f"Error saving data: {str(e)}"
+
+# ------------------------------
+# UI Components
+# ------------------------------
+def login_ui():
+    """Login interface"""
+    st.title("SCIS Stuco Login")
+    
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submit = st.form_submit_button("Login")
+        
+        if submit:
+            success, result = authenticate(username, password)
+            if success:
+                st.session_state.user = username
+                st.session_state.role = result
+                update_user_login(username)
+                st.success(f"Welcome {username}!")
+                st.experimental_rerun()
+            else:
+                st.session_state.login_attempts += 1
+                st.error(result)
+                
+                if st.session_state.login_attempts >= 3:
+                    st.warning("Too many attempts. Please try again later.")
+
+def group_management_ui():
+    """Enhanced group management interface with detailed views"""
+    st.subheader("📊 Group Management System")
     
     # Show initialization status
     success, msg = initialize_group_system()
@@ -603,6 +809,28 @@ def render_groups_tab():
             col1, col2 = st.columns([3, 1])
             
             with col1:
+                # Group description
+                desc = st.session_state.group_descriptions.get(group, "")
+                if is_admin():
+                    new_desc = st.text_area(
+                        "Group Description", 
+                        desc, 
+                        key=f"desc_{group}",
+                        height=50
+                    )
+                    if new_desc != desc:
+                        update_group_description(group, new_desc)
+                        st.success("Description updated")
+                        st.experimental_rerun()
+                else:
+                    st.text_area(
+                        "Group Description", 
+                        desc, 
+                        key=f"view_desc_{group}",
+                        height=50,
+                        disabled=True
+                    )
+                
                 # Show members
                 st.write("**Members:**")
                 members = st.session_state.group_members.get(group, [])
@@ -610,25 +838,27 @@ def render_groups_tab():
                     for i, member in enumerate(members):
                         col_m1, col_m2 = st.columns([4, 1])
                         col_m1.write(f"- {member}")
-                        if st.button("Remove", key=f"remove_{group}_{i}", type="secondary", use_container_width=True):
-                            success, msg = remove_group_member(group, member)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
+                        if is_admin():
+                            if st.button("Remove", key=f"remove_{group}_{i}", type="secondary", use_container_width=True):
+                                success, msg = remove_group_member(group, member)
+                                if success:
+                                    st.success(msg)
+                                    st.experimental_rerun()
+                                else:
+                                    st.error(msg)
                 else:
                     st.write("No members in this group yet")
                 
                 # Add member form
-                new_member = st.text_input(f"Add member to {group}", key=f"new_member_{group}")
-                if st.button(f"Add to {group}", key=f"add_btn_{group}"):
-                    success, msg = add_group_member(group, new_member)
-                    if success:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
+                if is_admin():
+                    new_member = st.text_input(f"Add member to {group}", key=f"new_member_{group}")
+                    if st.button(f"Add to {group}", key=f"add_btn_{group}"):
+                        success, msg = add_group_member(group, new_member)
+                        if success:
+                            st.success(msg)
+                            st.experimental_rerun()
+                        else:
+                            st.error(msg)
             
             with col2:
                 # Group actions
@@ -649,7 +879,7 @@ def render_groups_tab():
                     success, msg = add_group_meeting(group, meeting_date, meeting_agenda)
                     if success:
                         st.success(msg)
-                        st.rerun()
+                        st.experimental_rerun()
                     else:
                         st.error(msg)
                 
@@ -681,9 +911,9 @@ def render_groups_tab():
                             value=attended,
                             key=f"attendance_{group}_{i}_{member}"
                         )
-                        if attended_status != attended:
+                        if attended_status != attended and is_admin():
                             update_group_meeting_attendance(group, i, member, attended_status)
-                            st.rerun()
+                            st.experimental_rerun()
                     st.divider()
     
     # Admin section for group codes
@@ -739,131 +969,6 @@ def save_config(config):
         os.replace(temp_file, CONFIG_FILE)
     except Exception as e:
         st.error(f"Error saving config: {str(e)}")
-
-# ------------------------------
-# User Authentication (Preserves User Accounts)
-# ------------------------------
-def hash_password(password):
-    """Hash a password for secure storage"""
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-
-def verify_password(password, hashed_password):
-    """Verify a password against its hash"""
-    return bcrypt.checkpw(password.encode('utf-8'), hashed_password.encode('utf-8'))
-
-def load_users():
-    """Load users with backup recovery (fixes lost user accounts)"""
-    try:
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, "r") as f:
-                users = json.load(f)
-            # Filter invalid entries (prevents crashes)
-            return {k: v for k, v in users.items() if "password_hash" in v and "role" in v}
-        
-        # Recover from backup if users file is missing
-        backups = sorted(
-            [f for f in os.listdir(BACKUP_DIR) if f.startswith("users.json")],
-            reverse=True
-        )
-        if backups:
-            st.warning("User data missing - restoring from backup")
-            latest_backup = os.path.join(BACKUP_DIR, backups[0])
-            shutil.copy2(latest_backup, USERS_FILE)
-            with open(USERS_FILE, "r") as f:
-                users = json.load(f)
-            return {k: v for k, v in users.items() if "password_hash" in v and "role" in v}
-                
-        # Fallback to empty dict if no backups
-        return {}
-    except Exception as e:
-        st.error(f"Error loading users: {str(e)}")
-        # Last resort: try backup again
-        try:
-            backups = sorted([f for f in os.listdir(BACKUP_DIR) if f.startswith("users.json")], reverse=True)
-            if backups:
-                latest_backup = os.path.join(BACKUP_DIR, backups[0])
-                shutil.copy2(latest_backup, USERS_FILE)
-                with open(USERS_FILE, "r") as f:
-                    users = json.load(f)
-                return {k: v for k, v in users.items() if "password_hash" in v and "role" in v}
-        except:
-            st.error("Failed to recover users - starting fresh (check backups folder)")
-        return {}
-
-def save_user(username, password, role="user"):
-    """Save a new user safely (with backups)"""
-    try:
-        backup_data()  # Backup before adding user
-        users = load_users()
-        if username in users:
-            return False, "Username already exists"
-        
-        users[username] = {
-            "password_hash": hash_password(password),
-            "role": role,
-            "created_at": datetime.now().isoformat(),
-            "last_login": None
-        }
-        
-        # Safe write (temp file first)
-        temp_file = f"{USERS_FILE}.tmp"
-        with open(temp_file, "w") as f:
-            json.dump(users, f, indent=2)
-        os.replace(temp_file, USERS_FILE)
-        return True, "User created successfully"
-    except Exception as e:
-        return False, f"Error saving user: {str(e)}"
-
-def update_user_login(username):
-    """Update last login timestamp (safe write)"""
-    try:
-        users = load_users()
-        if username in users:
-            users[username]["last_login"] = datetime.now().isoformat()
-            temp_file = f"{USERS_FILE}.tmp"
-            with open(temp_file, "w") as f:
-                json.dump(users, f, indent=2)
-            os.replace(temp_file, USERS_FILE)
-    except Exception as e:
-        st.warning(f"Could not update login time: {str(e)}")
-
-def update_user_role(username, new_role):
-    """Update a user's role (with validation)"""
-    valid_roles = ROLES + [CREATOR_ROLE]
-    if new_role not in valid_roles:
-        return False, f"Invalid role. Choose: {', '.join(valid_roles)}"
-        
-    try:
-        backup_data()  # Backup before changing role
-        users = load_users()
-        if username not in users:
-            return False, "User not found"
-        
-        users[username]["role"] = new_role
-        temp_file = f"{USERS_FILE}.tmp"
-        with open(temp_file, "w") as f:
-            json.dump(users, f, indent=2)
-        os.replace(temp_file, USERS_FILE)
-        return True, f"Role updated to {new_role}"
-    except Exception as e:
-        return False, f"Error updating role: {str(e)}"
-
-def delete_user(username):
-    """Delete a user safely (with backups)"""
-    try:
-        backup_data()  # Backup before deleting
-        users = load_users()
-        if username not in users:
-            return False, "User not found"
-        
-        del users[username]
-        temp_file = f"{USERS_FILE}.tmp"
-        with open(temp_file, "w") as f:
-            json.dump(users, f, indent=2)
-        os.replace(temp_file, USERS_FILE)
-        return True, "User deleted successfully"
-    except Exception as e:
-        return False, f"Error deleting user: {str(e)}"
 
 # ------------------------------
 # Data Management (Preserves All App Data)
@@ -993,40 +1098,6 @@ def safe_init_data():
         
     st.session_state.attendance = pd.DataFrame(attendance_data)
 
-def save_data(sheet):
-    if not sheet:
-        return False, "No sheet connection"
-    
-    try:
-        # Save users to "users" tab
-        users_tab = sheet.worksheet("users")
-        users_tab.update([st.session_state.users])
-        
-        # Save attendance to "attendance" tab
-        att_tab = sheet.worksheet("attendance")
-        att_tab.update([st.session_state.attendance.columns.tolist()] + st.session_state.attendance.values.tolist())
-        
-        return True, "Data saved"
-    except Exception as e:
-        return False, f"Save error: {str(e)}"
-
-def load_data(sheet):
-    if not sheet:
-        return False, "No sheet connection"
-    
-    try:
-        # Load users
-        users = sheet.worksheet("users").get_all_records()
-        st.session_state.users = users if users else [{"username": "admin", "password": "hashed_pw", "role": "admin"}]
-        
-        # Load attendance
-        att_data = sheet.worksheet("attendance").get_all_records()
-        st.session_state.attendance = pd.DataFrame(att_data)
-        
-        return True, "Data loaded"
-    except Exception as e:
-        return False, f"Load error: {str(e)}"
-
 # ------------------------------
 # Authentication UI
 # ------------------------------
@@ -1052,7 +1123,7 @@ def render_login_form():
         
         if clear_btn:
             st.session_state.login_attempts = 0
-            st.rerun()
+            st.experimental_rerun()
         
         if login_btn:
             if not username or not password:
@@ -1127,7 +1198,7 @@ def render_signup_form():
                 return
             
             # Create user with group association
-            success, msg = save_user(new_username, new_password)
+            success, msg = register_user(new_username, new_password)
             if success:
                 # Add user to their group
                 add_group_member(group_name, new_username)
@@ -1187,7 +1258,7 @@ def list_backups():
         return []
     
     # Get all backup files (sorted by newest first)
-    backup_files = [f for f in os.listdir(backup_folder) if f.startswith(("app_data.json_", "users.json_", "groups.json_"))]  # New: Include groups
+    backup_files = [f for f in os.listdir(backup_folder) if f.startswith(("app_data.json_", "users.json_", "groups.json_"))]
     backup_files.sort(key=lambda x: os.path.getmtime(os.path.join(backup_folder, x)), reverse=True)
     return backup_files
 
@@ -1211,7 +1282,7 @@ def restore_latest_backup():
         latest_user_backup = os.path.join(backup_folder, user_backups[0])
         shutil.copy2(latest_user_backup, "stuco_data/users.json")
     
-    # New: Restore groups.json
+    # Restore groups.json
     group_backups = [f for f in backups if f.startswith("groups.json_")]
     if group_backups:
         latest_group_backup = os.path.join(backup_folder, group_backups[0])
@@ -1254,7 +1325,7 @@ def render_calendar():
                 new_month = 12
                 new_year -= 1
             st.session_state.current_calendar_month = (new_year, new_month)
-            st.rerun()  # Refresh to show new month
+            st.experimental_rerun()  # Refresh to show new month
     
     with col_title:
         # Display current month and year
@@ -1269,7 +1340,7 @@ def render_calendar():
                 new_month = 1
                 new_year += 1
             st.session_state.current_calendar_month = (new_year, new_month)
-            st.rerun()  # Refresh to show new month
+            st.experimental_rerun()  # Refresh to show new month
     
     # Generate calendar grid for current month
     grid, month, year = get_month_grid(current_year, current_month)
@@ -1406,29 +1477,6 @@ def draw_wheel(rotation_angle=0):
     
     return fig
 
-def load_group_codes():
-    """Load group codes from file"""
-    GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
-    try:
-        with open(GROUP_CODES_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        st.error(f"Error loading group codes: {str(e)}")
-        return {}
-
-def verify_group_code(group_name, code):
-    """Check if code matches the group's assigned code"""
-    group_codes = load_group_codes()
-    return group_codes.get(group_name) == code
-
-def get_group_from_code(code):
-    """Get group name from a code"""
-    group_codes = load_group_codes()
-    for group, group_code in group_codes.items():
-        if group_code == code:
-            return group
-    return None
-    
 def show_group_codes():
     """Ensure group codes are displayed correctly"""
     if is_creator():  # Make sure only admins can see this
@@ -1453,6 +1501,7 @@ def show_group_codes():
                     disabled=True,
                     key=f"code_display_{group}"
                 )
+
 # ------------------------------
 # Meeting & Attendance Management
 # ------------------------------
@@ -1657,7 +1706,7 @@ def render_main_app():
         if is_creator():
             st.divider()
             st.subheader("Restore Backup")
-            st.caption("Recover lost data (attendance, users, credits, groups)")  # New: Added groups
+            st.caption("Recover lost data (attendance, users, credits, groups)")
         
         # Show available backups
         backups = list_backups()
@@ -1673,7 +1722,7 @@ def render_main_app():
             success, msg = restore_latest_backup()
             if success:
                 st.success(msg)
-                st.rerun()
+                st.experimental_rerun()
             else:
                 st.error(msg)
         
@@ -1681,7 +1730,7 @@ def render_main_app():
             st.session_state.user = None
             st.session_state.role = None
             st.success("Logged out successfully")
-            st.rerun()
+            st.experimental_rerun()
         
         st.divider()
         
@@ -1700,7 +1749,7 @@ def render_main_app():
                 config["show_signup"] = new_signup_state
                 save_config(config)
                 st.success(f"Signup form {'enabled' if new_signup_state else 'disabled'}")
-                st.rerun()
+                st.experimental_rerun()
             
             st.divider()
             
@@ -1711,7 +1760,7 @@ def render_main_app():
             new_role = st.selectbox("User Role", ROLES + [CREATOR_ROLE], key="creator_add_role")
             
             if st.button("Create User", key="creator_add_btn") and new_username and new_password:
-                success, msg = save_user(new_username, new_password, new_role)
+                success, msg = register_user(new_username, new_password, new_role)
                 st.success(msg) if success else st.error(msg)
             
             st.divider()
@@ -1752,7 +1801,7 @@ def render_main_app():
                         if st.button("Delete User", type="secondary", key="creator_delete_btn"):
                             success, msg = delete_user(selected_user)
                             st.success(msg) if success else st.error(msg)
-                            st.rerun()
+                            st.experimental_rerun()
             else:
                 st.info("No users found")
         
@@ -1762,12 +1811,12 @@ def render_main_app():
             st.subheader("Quick Stats")
             st.metric("Total Members", len(st.session_state.attendance))
             st.metric("Total Funds (Estimated)", f"${sum(st.session_state.scheduled_events['Total Funds']):.2f}")
-            st.metric("Active Groups", len(st.session_state.groups))  # New: Group stat
+            st.metric("Active Groups", len(st.session_state.groups))
 
     # ------------------------------
     # Main Tabs (Added Groups tab)
     # ------------------------------
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([  # New: Added tab8 for Groups
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Calendar", 
         "Announcements",
         "Financial Planning", 
@@ -1775,7 +1824,7 @@ def render_main_app():
         "Credit & Rewards", 
         "SCIS AI Tools", 
         "Money Transfers",
-        "Groups"  # New: Groups tab
+        "Groups"
     ])
 
     # ------------------------------
@@ -1841,7 +1890,7 @@ def render_main_app():
                             success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                             if success:
                                 st.success("Announcement deleted")
-                                st.rerun()
+                                st.experimental_rerun()
                             else:
                                 st.error(msg)
             
@@ -2062,7 +2111,7 @@ def render_main_app():
             st.subheader("Attendance Tracking")
             if is_admin() and st.button("Reset Attendance Data", type="secondary"):
                 reset_attendance_data()
-                st.rerun()
+                st.experimental_rerun()
             
             # Summary statistics
             st.subheader("Attendance Summary")
@@ -2090,7 +2139,7 @@ def render_main_app():
                                 success, msg = mark_all_present(meeting)
                                 if success:
                                     st.success(msg)
-                                    st.rerun()
+                                    st.experimental_rerun()
                                 else:
                                     st.error(msg)
                     st.divider()  # Separate buttons from the table
@@ -2173,7 +2222,7 @@ def render_main_app():
                     import_success, import_msg = import_credit_members_from_excel()
                     if import_success:
                         st.success(import_msg)
-                        st.rerun()
+                        st.experimental_rerun()
                     else:
                         st.error(import_msg)
     
@@ -2247,7 +2296,7 @@ def render_main_app():
                         if save_success:
                             st.success(success_msg)
                             # Refresh to show updated credit table
-                            st.rerun()
+                            st.experimental_rerun()
                         else:
                             st.error(f"Failed to save changes: {save_msg}")
     
@@ -2279,7 +2328,7 @@ def render_main_app():
                         save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
                         if save_success:
                             st.success(f"Removed {student_to_remove} from credit system")
-                            st.rerun()
+                            st.experimental_rerun()
                         else:
                             st.error(f"Failed to save changes: {save_msg}")
                 else:
@@ -2386,7 +2435,7 @@ def render_main_app():
                 # Spin button
                 if st.button("Spin the Wheel!", type="primary"):
                     st.session_state.spinning = True
-                    st.rerun()
+                    st.experimental_rerun()
                 
                 # Show last winner if exists
                 if st.session_state.winner:
@@ -2474,257 +2523,120 @@ def render_main_app():
         if is_admin():
             with st.expander("Record New Transaction (Admin Only)", expanded=False):
                 st.subheader("New Financial Transaction")
-                amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
-                description = st.text_input("Description", "Funds from bake sale")
-                transaction_date = st.date_input("Date", date.today())
-                handled_by = st.text_input("Handled By", st.session_state.user)
+                
+                # Transaction details form
+                col1, col2 = st.columns(2)
+                with col1:
+                    amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
+                    transaction_type = st.radio("Type", ["Income", "Expense"])
+                
+                with col2:
+                    description = st.text_input("Description", "Fundraising event proceeds")
+                    handled_by = st.text_input("Handled By", st.session_state.user)
+                
+                transaction_date = st.date_input("Transaction Date", date.today())
                 
                 if st.button("Record Transaction"):
-                    new_transaction = pd.DataFrame({
-                        'Amount': [amount],
-                        'Description': [description],
-                        'Date': [transaction_date.strftime("%Y-%m-%d")],
-                        'Handled By': [handled_by]
-                    })
-                    st.session_state.money_data = pd.concat(
-                        [st.session_state.money_data, new_transaction], ignore_index=True
-                    )
-                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                    if success:
-                        st.success("Transaction recorded successfully")
+                    if amount <= 0:
+                        st.error("Amount must be greater than zero")
+                    elif not description.strip():
+                        st.error("Please enter a description")
                     else:
-                        st.error(msg)
+                        # Adjust amount based on transaction type
+                        recorded_amount = amount if transaction_type == "Income" else -amount
+                        
+                        # Create new transaction record
+                        new_transaction = pd.DataFrame({
+                            'Amount': [recorded_amount],
+                            'Description': [description],
+                            'Date': [transaction_date.strftime("%Y-%m-%d")],
+                            'Handled By': [handled_by]
+                        })
+                        
+                        # Add to transaction history
+                        st.session_state.money_data = pd.concat(
+                            [st.session_state.money_data, new_transaction], ignore_index=True
+                        )
+                        
+                        # Save changes
+                        success, msg = save_data(connect_gsheets())
+                        if success:
+                            st.success(f"Successfully recorded {transaction_type.lower()} of ${amount:.2f}")
+                        else:
+                            st.error(msg)
         
         # Financial summary
         st.divider()
         st.subheader("Financial Summary")
-        total_in = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
-        total_out = st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum()
-        net_balance = total_in + total_out
         
-        col_in, col_out, col_balance = st.columns(3)
-        with col_in:
-            st.metric("Total Income", f"${total_in:.2f}")
-        with col_out:
-            st.metric("Total Expenses", f"${abs(total_out):.2f}")
-        with col_balance:
-            st.metric("Current Balance", f"${net_balance:.2f}")
+        if not st.session_state.money_data.empty:
+            # Calculate totals
+            total_income = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
+            total_expense = abs(st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum())
+            net_balance = total_income - total_expense
+            
+            # Display metrics
+            col_inc, col_exp, col_bal = st.columns(3)
+            with col_inc:
+                st.metric("Total Income", f"${total_income:.2f}")
+            with col_exp:
+                st.metric("Total Expenses", f"${total_expense:.2f}")
+            with col_bal:
+                st.metric("Net Balance", f"${net_balance:.2f}")
+            
+            # Monthly breakdown chart
+            if st.checkbox("Show Monthly Breakdown"):
+                # Convert to datetime for grouping
+                st.session_state.money_data['Date'] = pd.to_datetime(st.session_state.money_data['Date'])
+                st.session_state.money_data['Month'] = st.session_state.money_data['Date'].dt.to_period('M')
+                
+                # Group by month
+                monthly_data = st.session_state.money_data.groupby('Month')['Amount'].sum().reset_index()
+                monthly_data['Month'] = monthly_data['Month'].astype(str)
+                
+                # Create and display chart
+                fig, ax = plt.subplots()
+                ax.bar(monthly_data['Month'], monthly_data['Amount'], color=['green' if x > 0 else 'red' for x in monthly_data['Amount']])
+                ax.set_title('Monthly Financial Overview')
+                ax.set_xlabel('Month')
+                ax.set_ylabel('Net Amount ($)')
+                plt.xticks(rotation=45)
+                st.pyplot(fig)
+        else:
+            st.info("No financial data available for summary")
 
     # ------------------------------
-    # Tab 8: Groups (New)
+    # Tab 8: Groups
     # ------------------------------
     with tab8:
-        st.subheader("Group Management")
-        
-        # Main group management section
-        col_group_list, col_group_details = st.columns(2)
-        
-        with col_group_list:
-            st.subheader("Existing Groups")
-            
-            if st.session_state.groups:
-                # Display list of groups with member counts
-                for group in st.session_state.groups:
-                    member_count = len(st.session_state.group_members.get(group, []))
-                    meeting_count = len(st.session_state.group_meetings.get(group, []))
-                    
-                    st.write(f"**{group}**")
-                    st.caption(f"Members: {member_count} | Meetings: {meeting_count}")
-                    
-                    # View details button
-                    if st.button(f"View Details: {group}", key=f"view_{group}", use_container_width=True):
-                        st.session_state.current_group = group
-                        st.rerun()
-                    
-                    st.divider()
-            else:
-                st.info("No groups created yet. Create your first group below.")
-            
-            # Create new group (admin only)
-            if is_admin():
-                st.subheader("Create New Group")
-                new_group_name = st.text_input("Group Name", "Event Planning Committee")
-                group_description = st.text_input("Description (Optional)", "Handles all event planning activities")
-                
-                if st.button("Create Group", type="primary"):
-                    success, msg = create_group(new_group_name, group_description)
-                    if success:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-        
-        with col_group_details:
-            if "current_group" in st.session_state and st.session_state.current_group:
-                group_name = st.session_state.current_group
-                st.subheader(f"Group: {group_name}")
-                
-                # Member management
-                st.subheader("Members")
-                members = st.session_state.group_members.get(group_name, [])
-                
-                if members:
-                    st.dataframe(pd.DataFrame({"Members": members}), use_container_width=True)
-                    
-                    # Remove member
-                    if is_admin():
-                        member_to_remove = st.selectbox(
-                            "Select Member to Remove", 
-                            members, 
-                            key=f"remove_{group_name}"
-                        )
-                        if st.button("Remove Member", type="secondary"):
-                            success, msg = remove_group_member(group_name, member_to_remove)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                else:
-                    st.info("No members in this group yet. Add members below.")
-                
-                # Add member (admin only)
-                if is_admin() and not st.session_state.attendance.empty:
-                    all_members = sorted(st.session_state.attendance['Name'].tolist())
-                    # Filter out members already in the group
-                    available_members = [m for m in all_members if m not in members]
-                    
-                    if available_members:
-                        new_member = st.selectbox(
-                            "Add Member to Group", 
-                            available_members,
-                            key=f"add_{group_name}"
-                        )
-                        if st.button(
-                            "Add Member", 
-                            type="secondary",
-                            key=f"add_member_{group_name}"
-                        ):
-                            success, msg = add_group_member(group_name, new_member)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-                    else:
-                        st.info("All members are already in this group")
-                
-                # Meeting management
-                st.divider()
-                st.subheader("Group Meetings")
-                meetings = st.session_state.group_meetings.get(group_name, [])
-                
-                if meetings:
-                    # Display meetings list
-                    for i, meeting in enumerate(meetings):
-                        with st.expander(f"Meeting on {meeting['date']}", expanded=False):
-                            st.write(f"**Agenda:** {meeting['agenda']}")
-                            
-                            # Attendance
-                            st.subheader("Attendance")
-                            attendance_data = [
-                                {"Member": m, "Attended": "✓" if a else "✗"} 
-                                for m, a in meeting["attendance"].items()
-                            ]
-                            st.dataframe(pd.DataFrame(attendance_data), use_container_width=True)
-                            
-                            # Update attendance (admin only)
-                            if is_admin():
-                                st.subheader("Update Attendance")
-                                member_to_update = st.selectbox(
-                                    "Select Member",
-                                    list(meeting["attendance"].keys()),
-                                    key=f"attend_{group_name}_{i}"
-                                )
-                                new_status = st.checkbox(
-                                    "Attended",
-                                    value=meeting["attendance"][member_to_update],
-                                    key=f"status_{group_name}_{i}"
-                                )
-                                
-                                if st.button("Update", key=f"update_{group_name}_{i}", type="secondary"):
-                                    success, msg = update_group_meeting_attendance(
-                                        group_name, i, member_to_update, new_status
-                                    )
-                                    if success:
-                                        st.success(msg)
-                                        st.rerun()
-                                    else:
-                                        st.error(msg)
-                else:
-                    st.info("No meetings scheduled for this group yet")
-                
-                # Add new meeting (admin only)
-                if is_admin():
-                    st.divider()
-                    st.subheader("Schedule New Meeting")
-                    meeting_date = st.date_input("Meeting Date", date.today())
-                    meeting_agenda = st.text_area("Meeting Agenda", "Discuss upcoming events and responsibilities")
-                    
-                    if st.button("Schedule Meeting", type="secondary"):
-                        success, msg = add_group_meeting(group_name, meeting_date, meeting_agenda)
-                        if success:
-                            st.success(msg)
-                            st.rerun()
-                        else:
-                            st.error(msg)
-                
-                # Export group data
-                if is_admin():
-                    st.divider()
-                    if st.button("Export Group Data", type="primary"):
-                        excel_data, msg = export_group_data(group_name)
-                        if excel_data:
-                            st.success(msg)
-                            # Create download link
-                            b64 = base64.b64encode(excel_data.read()).decode()
-                            href = f'<a href="data:application/octet-stream;base64,{b64}" download="{group_name}_data.xlsx">Download Excel File</a>'
-                            st.markdown(href, unsafe_allow_html=True)
-                        else:
-                            st.error(msg)
-                
-                # Delete group (admin only)
-                if is_admin():
-                    st.divider()
-                    if st.button("Delete Group", type="secondary", disabled=False):
-                        if st.checkbox(f"Confirm deletion of {group_name}", key=f"confirm_delete_{group_name}"):
-                            success, msg = delete_group(group_name)
-                            if success:
-                                del st.session_state.current_group
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
-            else:
-                st.info("Select a group from the list to view details")
-                
+        group_management_ui()
+        group_diagnostics()
+        show_group_codes()
+
 # ------------------------------
-# Main Application Flow
+# Main Execution Flow
 # ------------------------------
 def main():
-    # Initialize files if they don't exist
+    # Initialize files and session state
     initialize_files()
-    
-    # Initialize session state variables
     initialize_session_state()
     
-    # Ensure data is initialized
-    if "attendance" not in st.session_state:
-        safe_init_data()
-
-    if "groups" not in st.session_state:
-        initialize_group_system()
+    # Load group data
+    load_groups_data()
     
-    # Render login/signup forms
-    if not st.session_state.user:
-        render_login_form()
-        render_signup_form()
-        render_welcome_screen()
-    else:
-        # Render main application after login
+    # Check if user is logged in
+    if st.session_state.user:
+        # Load application data
+        sheet = connect_gsheets()
+        load_data(sheet)
         render_main_app()
+    else:
+        # Show login and signup forms
+        login_success = render_login_form()
+        render_signup_form()
+        
+        if not login_success:
+            render_welcome_screen()
 
 if __name__ == "__main__":
     main()
-
-
