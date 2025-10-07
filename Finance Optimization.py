@@ -17,6 +17,7 @@ import random
 import shutil
 from io import BytesIO, StringIO
 import base64
+import requests  # Added missing import
 
 # ------------------------------
 # App Configuration
@@ -93,6 +94,14 @@ st.markdown("""
     margin-bottom: 8px;
     border-radius: 4px;
 }
+
+.reimbursement-item {
+    background-color: #ffffff;
+    border-left: 3px solid #4caf50;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -106,6 +115,7 @@ USERS_FILE = os.path.join(DATA_DIR, "users.json")
 CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
 GROUPS_FILE = os.path.join(DATA_DIR, "groups.json")
 GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
+REIMBURSEMENTS_FILE = os.path.join(DATA_DIR, "reimbursements.json")  # New file for reimbursements
 
 # Ensure directories exist
 for dir_path in [DATA_DIR, BACKUP_DIR]:
@@ -162,7 +172,7 @@ def backup_data():
     """Create backups of all data files (keeps last 5 backups)"""
     try:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]
+        backup_files = [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE, REIMBURSEMENTS_FILE]
         
         # Create backup for each existing file
         for file in backup_files:
@@ -171,7 +181,7 @@ def backup_data():
                 shutil.copy2(file, backup_path)
         
         # Clean up old backups (keep only most recent 5)
-        for file_type in ["app_data.json", "users.json", "app_config.json", "groups.json"]:
+        for file_type in ["app_data.json", "users.json", "app_config.json", "groups.json", "reimbursements.json"]:
             backups = sorted(
                 [f for f in os.listdir(BACKUP_DIR) if f.startswith(file_type)],
                 reverse=True  # Newest first
@@ -187,7 +197,7 @@ def backup_data():
 # ------------------------------
 def initialize_files():
     """Ensure all required data files exist with safe defaults"""
-    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE]:
+    for file in [DATA_FILE, USERS_FILE, CONFIG_FILE, GROUPS_FILE, REIMBURSEMENTS_FILE]:
         if not Path(file).exists():
             initial_data = {}
             if file == CONFIG_FILE:
@@ -199,12 +209,21 @@ def initialize_files():
                     "group_meetings": {f"G{i}": [] for i in range(1,9)},
                     "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)}
                 }
+            elif file == REIMBURSEMENTS_FILE:  # Initialize reimbursements data
+                initial_data = {
+                    "requests": []  # Format: {"id": "", "group": "", "amount": 0, "description": "", "status": "pending", "file": "", "submitted_by": "", "submitted_at": ""}
+                }
             
-            # Write to temp file first to avoid corruption
+            # Write to temp file first to avoid corruption, then properly replace
             temp_file = f"{file}.tmp"
             with open(temp_file, "w") as f:
                 json.dump(initial_data, f, indent=2)
-            os.replace(temp_file, file)
+            # Ensure the temp file was created before replacing
+            if os.path.exists(temp_file):
+                os.replace(temp_file, file)
+                # Remove tmp file if it still exists
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
     
     # Initialize group codes if missing
     if not Path(GROUP_CODES_FILE).exists():
@@ -274,6 +293,7 @@ def initialize_session_state():
         "group_meetings": {f"G{i}": [] for i in range(1,9)},
         "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
         "current_group": None,
+        "reimbursements": {"requests": []},  # New: Reimbursement data
         
         # Other app state
         "allocation_count": 0,
@@ -501,7 +521,7 @@ def clean_up_google_sheets(sheet):
             return False, "No Google Sheet connection available"
             
         # List of ONLY valid worksheets (delete anything else)
-        REQUIRED_WORKSHEETS = ["Attendance", "Credits", "Members", "Financials", "Groups"]
+        REQUIRED_WORKSHEETS = ["Attendance", "Credits", "Members", "Financials", "Groups", "Reimbursements"]
         
         # Get all current worksheets in the Google Sheet
         current_worksheets = sheet.worksheets()
@@ -532,6 +552,8 @@ def clean_up_google_sheets(sheet):
                     new_ws.append_row(["Name"])  # Simple name column for member list
                 elif required_sheet == "Groups":
                     new_ws.append_row(["Group Name", "Members", "Meeting Dates", "Attendance Rate"])  # Group columns
+                elif required_sheet == "Reimbursements":  # New worksheet for reimbursements
+                    new_ws.append_row(["ID", "Group", "Amount", "Description", "Status", "Submitted By", "Submitted At"])
                 
                 created_sheets.append(required_sheet)
         
@@ -636,9 +658,74 @@ def save_groups_data():
         with open(temp_file, "w") as f:
             json.dump(group_data, f, indent=2)
         os.replace(temp_file, GROUPS_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
         return True, "Group data saved successfully"
     except Exception as e:
         return False, f"Error saving group data: {str(e)}"
+
+# ------------------------------
+# Reimbursement Management (New Functions)
+# ------------------------------
+def load_reimbursement_data():
+    """Load reimbursement data"""
+    try:
+        if os.path.exists(REIMBURSEMENTS_FILE):
+            with open(REIMBURSEMENTS_FILE, "r") as f:
+                st.session_state.reimbursements = json.load(f)
+            return True, "Reimbursement data loaded successfully"
+        
+        # Fallback to default
+        st.session_state.reimbursements = {"requests": []}
+        return True, "Initialized with default reimbursement data"
+    except Exception as e:
+        st.error(f"Error loading reimbursement data: {str(e)}")
+        return False, f"Error loading reimbursement data: {str(e)}"
+
+def save_reimbursement_data():
+    """Save reimbursement data safely"""
+    try:
+        backup_data()  # Backup before saving changes
+        temp_file = f"{REIMBURSEMENTS_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(st.session_state.reimbursements, f, indent=2)
+        os.replace(temp_file, REIMBURSEMENTS_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        return True, "Reimbursement data saved successfully"
+    except Exception as e:
+        return False, f"Error saving reimbursement data: {str(e)}"
+
+def submit_reimbursement_request(group, amount, description, file_data, submitted_by):
+    """Submit a new reimbursement request"""
+    # Generate unique ID
+    request_id = f"REQ-{datetime.now().strftime('%Y%m%d%H%M%S')}-{random.randint(100, 999)}"
+    
+    new_request = {
+        "id": request_id,
+        "group": group,
+        "amount": amount,
+        "description": description,
+        "status": "pending",  # pending, approved, rejected
+        "file": file_data,  # Base64 encoded file data
+        "submitted_by": submitted_by,
+        "submitted_at": datetime.now().isoformat()
+    }
+    
+    st.session_state.reimbursements["requests"].append(new_request)
+    return save_reimbursement_data()
+
+def update_reimbursement_status(request_id, new_status, comments=""):
+    """Update status of a reimbursement request"""
+    for request in st.session_state.reimbursements["requests"]:
+        if request["id"] == request_id:
+            request["status"] = new_status
+            if comments:
+                request["comments"] = comments
+            return save_reimbursement_data()
+    return False, "Request not found"
 
 # ------------------------------
 # Group Management Functions
@@ -811,6 +898,9 @@ def save_users(users):
         with open(temp_file, "w") as f:
             json.dump(users, f, indent=2)
         os.replace(temp_file, USERS_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
         return True
     except Exception as e:
         st.error(f"Error saving users: {str(e)}")
@@ -825,8 +915,8 @@ def authenticate(username, password):
         return False, "Incorrect password"
     return False, "User not found"
 
-def register_user(username, password, role="user"):
-    """Register new user"""
+def register_user(username, password, role="user", group_name=None):
+    """Register new user with group association"""
     if role not in ROLES:
         return False, "Invalid role"
         
@@ -835,12 +925,18 @@ def register_user(username, password, role="user"):
         return False, "Username already exists"
         
     hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    users[username] = {
+    user_data = {
         "password_hash": hashed_pw,
         "role": role,
         "created_at": datetime.now().isoformat(),
         "last_login": None
     }
+    
+    # Add group information if provided
+    if group_name:
+        user_data["group"] = group_name
+        
+    users[username] = user_data
     return save_users(users), "User registered successfully"
 
 def hash_password(password):
@@ -861,6 +957,9 @@ def update_user_login(username):
             with open(temp_file, "w") as f:
                 json.dump(users, f, indent=2)
             os.replace(temp_file, USERS_FILE)
+            # Clean up temp file if needed
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
     except Exception as e:
         st.warning(f"Could not update login time: {str(e)}")
 
@@ -881,6 +980,9 @@ def update_user_role(username, new_role):
         with open(temp_file, "w") as f:
             json.dump(users, f, indent=2)
         os.replace(temp_file, USERS_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
         return True, f"Role updated to {new_role}"
     except Exception as e:
         return False, f"Error updating role: {str(e)}"
@@ -898,9 +1000,19 @@ def delete_user(username):
         with open(temp_file, "w") as f:
             json.dump(users, f, indent=2)
         os.replace(temp_file, USERS_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
         return True, "User deleted successfully"
     except Exception as e:
         return False, f"Error deleting user: {str(e)}"
+
+def get_user_group(username):
+    """Get the group associated with a user"""
+    users = load_users()
+    if username in users and "group" in users[username]:
+        return users[username]["group"]
+    return None
 
 # ------------------------------
 # Main Application Functions
@@ -917,6 +1029,9 @@ def load_student_council_members():
 def load_data(sheet):
     """Load application data"""
     try:
+        # Load reimbursement data
+        load_reimbursement_data()
+        
         # If we have a Google Sheet connection, use it
         if sheet:
             # Load attendance data
@@ -967,12 +1082,18 @@ def save_data(sheet=None):
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2)
         os.replace(temp_file, DATA_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        
+        # Save reimbursement data separately
+        save_reimbursement_data()
         
         # If sheet connection is provided, save to Google Sheets too
         if sheet:
             try:
                 # Save attendance
-                att_tab = sheet.worksheet("attendance")
+                att_tab = sheet.worksheet("Attendance")
                 att_tab.update([st.session_state.attendance.columns.tolist()] + st.session_state.attendance.values.tolist())
             except:
                 pass
@@ -1010,7 +1131,7 @@ def login_ui():
                     st.warning("Too many attempts. Please try again later.")
 
 def group_management_ui():
-    """Enhanced group management interface with detailed views"""
+    """Enhanced group management interface with detailed views and reimbursement feature"""
     st.subheader("📊 Group Management System")
     
     # Show initialization status
@@ -1020,139 +1141,263 @@ def group_management_ui():
     else:
         st.error(msg)
     
-    # Display all groups
-    st.subheader("All Groups")
+    # Get user's group (for non-admins)
+    user_group = get_user_group(st.session_state.user) if not is_admin() else None
     
-    # Ensure groups are sorted with G1-G8 first
-    sorted_groups = sorted(
-        st.session_state.groups,
-        key=lambda x: (x[0] != 'G', int(x[1:]) if x.startswith('G') else 999)
-    )
+    # Display groups - admins see all, users see only their group
+    st.subheader("Your Groups" if user_group else "All Groups")
     
-    for group in sorted_groups:
-        with st.expander(f"Group: {group}", expanded=True):  # Expanded by default
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                # Group description
-                desc = st.session_state.group_descriptions.get(group, "")
-                if is_admin():
-                    new_desc = st.text_area(
-                        "Group Description", 
-                        desc, 
-                        key=f"desc_{group}",
-                        height=50
-                    )
-                    if new_desc != desc:
-                        update_group_description(group, new_desc)
-                        st.success("Description updated")
-                        st.rerun()
-                else:
-                    st.text_area(
-                        "Group Description", 
-                        desc, 
-                        key=f"view_desc_{group}",
-                        height=50,
-                        disabled=True
-                    )
+    # Filter groups based on user role
+    if user_group:
+        groups_to_display = [user_group] if user_group in st.session_state.groups else []
+    else:
+        # Ensure groups are sorted with G1-G8 first
+        groups_to_display = sorted(
+            st.session_state.groups,
+            key=lambda x: (x[0] != 'G', int(x[1:]) if x.startswith('G') else 999)
+        )
+    
+    if not groups_to_display:
+        st.info("You are not assigned to any group yet.")
+    else:
+        for group in groups_to_display:
+            with st.expander(f"Group: {group}", expanded=True):
+                col1, col2 = st.columns([3, 1])
                 
-                # Show members
-                st.write("**Members:**")
-                members = st.session_state.group_members.get(group, [])
-                if members:
-                    for i, member in enumerate(members):
-                        col_m1, col_m2 = st.columns([4, 1])
-                        col_m1.write(f"- {member}")
-                        if is_admin():
-                            if st.button("Remove", key=f"remove_{group}_{i}", type="secondary", use_container_width=True):
-                                success, msg = remove_group_member(group, member)
-                                if success:
-                                    st.success(msg)
-                                    st.rerun()
-                                else:
-                                    st.error(msg)
-                else:
-                    st.write("No members in this group yet")
+                with col1:
+                    # Group description
+                    desc = st.session_state.group_descriptions.get(group, "")
+                    if is_admin():
+                        new_desc = st.text_area(
+                            "Group Description", 
+                            desc, 
+                            key=f"desc_{group}",
+                            height=50
+                        )
+                        if new_desc != desc:
+                            update_group_description(group, new_desc)
+                            st.success("Description updated")
+                            st.rerun()
+                    else:
+                        st.text_area(
+                            "Group Description", 
+                            desc, 
+                            key=f"view_desc_{group}",
+                            height=50,
+                            disabled=True
+                        )
+                    
+                    # Show members
+                    st.write("**Members:**")
+                    members = st.session_state.group_members.get(group, [])
+                    if members:
+                        for i, member in enumerate(members):
+                            col_m1, col_m2 = st.columns([4, 1])
+                            col_m1.write(f"- {member}")
+                            if is_admin():
+                                if st.button("Remove", key=f"remove_{group}_{i}", type="secondary", use_container_width=True):
+                                    success, msg = remove_group_member(group, member)
+                                    if success:
+                                        st.success(msg)
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                    else:
+                        st.write("No members in this group yet")
+                    
+                    # Add member form (admin only)
+                    if is_admin():
+                        new_member = st.text_input(f"Add member to {group}", key=f"new_member_{group}")
+                        if st.button(f"Add to {group}", key=f"add_btn_{group}"):
+                            success, msg = add_group_member(group, new_member)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
                 
-                # Add member form
-                if is_admin():
-                    new_member = st.text_input(f"Add member to {group}", key=f"new_member_{group}")
-                    if st.button(f"Add to {group}", key=f"add_btn_{group}"):
-                        success, msg = add_group_member(group, new_member)
+                with col2:
+                    # Group actions
+                    st.write("**Actions**")
+                    
+                    # Meeting management
+                    meeting_date = st.date_input(
+                        f"Meeting date for {group}", 
+                        key=f"meeting_date_{group}",
+                        value=date.today()
+                    )
+                    meeting_agenda = st.text_area(
+                        "Meeting agenda", 
+                        key=f"agenda_{group}",
+                        height=100
+                    )
+                    if st.button(f"Add Meeting", key=f"add_meeting_{group}"):
+                        success, msg = add_group_meeting(group, meeting_date, meeting_agenda)
                         if success:
                             st.success(msg)
                             st.rerun()
                         else:
                             st.error(msg)
-            
-            with col2:
-                # Group actions
-                st.write("**Actions**")
-                
-                # Meeting management
-                meeting_date = st.date_input(
-                    f"Meeting date for {group}", 
-                    key=f"meeting_date_{group}",
-                    value=date.today()
-                )
-                meeting_agenda = st.text_area(
-                    "Meeting agenda", 
-                    key=f"agenda_{group}",
-                    height=100
-                )
-                if st.button(f"Add Meeting", key=f"add_meeting_{group}"):
-                    success, msg = add_group_meeting(group, meeting_date, meeting_agenda)
-                    if success:
-                        st.success(msg)
-                        st.rerun()
-                    else:
-                        st.error(msg)
-                
-                # Export data
-                if st.button(f"Export Data", key=f"export_{group}"):
-                    output, msg = export_group_data(group)
-                    if output:
-                        st.download_button(
-                            label="Download Excel",
-                            data=output,
-                            file_name=f"{group}_data.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            key=f"download_{group}"
-                        )
-                    else:
-                        st.error(msg)
-        
-        # Show meetings if any exist
-        if st.session_state.group_meetings.get(group, []):
-            with st.expander(f"Past Meetings for {group}"):
-                for i, meeting in enumerate(st.session_state.group_meetings[group]):
-                    st.write(f"**Date:** {meeting['date']}")
-                    st.write(f"**Agenda:** {meeting['agenda']}")
                     
-                    st.write("**Attendance:**")
-                    for member, attended in meeting['attendance'].items():
-                        attended_status = st.checkbox(
-                            member, 
-                            value=attended,
-                            key=f"attendance_{group}_{i}_{member}"
+                    # Export data
+                    if st.button(f"Export Data", key=f"export_{group}"):
+                        output, msg = export_group_data(group)
+                        if output:
+                            st.download_button(
+                                label="Download Excel",
+                                data=output,
+                                file_name=f"{group}_data.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                key=f"download_{group}"
+                            )
+                        else:
+                            st.error(msg)
+            
+            # Show meetings if any exist
+            if st.session_state.group_meetings.get(group, []):
+                with st.expander(f"Past Meetings for {group}"):
+                    for i, meeting in enumerate(st.session_state.group_meetings[group]):
+                        st.write(f"**Date:** {meeting['date']}")
+                        st.write(f"**Agenda:** {meeting['agenda']}")
+                        
+                        st.write("**Attendance:**")
+                        for member, attended in meeting['attendance'].items():
+                            attended_status = st.checkbox(
+                                member, 
+                                value=attended,
+                                key=f"attendance_{group}_{i}_{member}",
+                                disabled=not is_admin() and st.session_state.user != member
+                            )
+                            if attended_status != attended and (is_admin() or st.session_state.user == member):
+                                update_group_meeting_attendance(group, i, member, attended_status)
+                                st.rerun()
+                        st.divider()
+        
+        # Reimbursement section
+        st.subheader("💸 Reimbursement Requests")
+        
+        # Get relevant requests (all for admins, only user's group for regular users)
+        if is_admin():
+            relevant_requests = st.session_state.reimbursements["requests"]
+        elif user_group:
+            relevant_requests = [r for r in st.session_state.reimbursements["requests"] if r["group"] == user_group]
+        else:
+            relevant_requests = []
+        
+        # Display requests
+        if relevant_requests:
+            # Sort by date (newest first)
+            relevant_requests.sort(key=lambda x: x["submitted_at"], reverse=True)
+            
+            for req in relevant_requests:
+                status_color = "orange" if req["status"] == "pending" else "green" if req["status"] == "approved" else "red"
+                with st.expander(f"Request {req['id']} - Status: <span style='color:{status_color}'>{req['status'].upper()}</span>", expanded=False):
+                    st.write(f"**Group:** {req['group']}")
+                    st.write(f"**Amount:** ${req['amount']:.2f}")
+                    st.write(f"**Description:** {req['description']}")
+                    st.write(f"**Submitted by:** {req['submitted_by']}")
+                    st.write(f"**Submitted on:** {datetime.fromisoformat(req['submitted_at']).strftime('%Y-%m-%d %H:%M')}")
+                    
+                    # Show file if available
+                    if req.get("file"):
+                        st.write("**Attached Document:**")
+                        # Convert base64 back to bytes
+                        file_bytes = base64.b64decode(req["file"])
+                        st.download_button(
+                            label="Download Document",
+                            data=file_bytes,
+                            file_name=f"receipt_{req['id']}.pdf",  # Assuming PDF, could be other formats
+                            mime="application/pdf"
                         )
-                        if attended_status != attended and is_admin():
-                            update_group_meeting_attendance(group, i, member, attended_status)
+                    
+                    # Show comments if any
+                    if "comments" in req:
+                        st.text_area("**Admin Comments:**", req["comments"], disabled=True, key=f"comments_{req['id']}")
+                    
+                    # Admin actions
+                    if is_admin() and req["status"] == "pending":
+                        col_approve, col_reject = st.columns(2)
+                        with col_approve:
+                            comments = st.text_input("Approval Comments (optional)", key=f"approve_{req['id']}")
+                            if st.button("Approve", key=f"app_{req['id']}", type="primary"):
+                                success, msg = update_reimbursement_status(req["id"], "approved", comments)
+                                if success:
+                                    st.success("Request approved!")
+                                    st.rerun()
+                                else:
+                                    st.error(msg)
+                        
+                        with col_reject:
+                            comments = st.text_input("Rejection Comments", key=f"reject_{req['id']}")
+                            if st.button("Reject", key=f"rej_{req['id']}", type="secondary"):
+                                if not comments:
+                                    st.error("Please provide a reason for rejection")
+                                else:
+                                    success, msg = update_reimbursement_status(req["id"], "rejected", comments)
+                                    if success:
+                                        st.success("Request rejected")
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+        else:
+            st.info("No reimbursement requests found")
+        
+        # Submit new reimbursement request
+        with st.expander("Submit New Reimbursement Request", expanded=False):
+            st.subheader("Request Funding Reimbursement")
+            
+            # For admins, let them choose any group; for users, default to their group
+            if is_admin():
+                selected_group = st.selectbox("Select Group", st.session_state.groups, key="reimb_group")
+            elif user_group:
+                selected_group = st.selectbox("Your Group", [user_group], disabled=True, key="reimb_user_group")
+            else:
+                st.error("You are not assigned to any group and cannot submit requests")
+                selected_group = None
+            
+            if selected_group:
+                amount = st.number_input("Amount to Reimburse ($)", min_value=0.01, step=10.0, format="%.2f", key="reimb_amount")
+                description = st.text_area("Description of Expense", "Please provide details about what this expense was for", key="reimb_desc")
+                receipt_file = st.file_uploader("Upload Receipt/Document (PDF only)", type=["pdf"], key="reimb_file")
+                
+                if st.button("Submit Request", key="submit_reimb"):
+                    if amount <= 0:
+                        st.error("Amount must be greater than zero")
+                    elif not description.strip():
+                        st.error("Please provide a description")
+                    elif not receipt_file:
+                        st.error("Please upload a receipt or document")
+                    else:
+                        # Convert file to base64 for storage
+                        file_bytes = receipt_file.read()
+                        file_base64 = base64.b64encode(file_bytes).decode()
+                        
+                        success, msg = submit_reimbursement_request(
+                            selected_group, 
+                            amount, 
+                            description, 
+                            file_base64,
+                            st.session_state.user
+                        )
+                        if success:
+                            st.success("Reimbursement request submitted successfully!")
                             st.rerun()
-                    st.divider()
+                        else:
+                            st.error(msg)
     
-    # Admin section for group codes
-    with st.expander("🔑 Group Access Codes (Admin)", expanded=True):
-        st.subheader("Group Verification Codes")
-        codes = load_group_codes()
-        for group in [f"G{i}" for i in range(1,9)]:  # Show G1-G8 codes first
-            code = codes.get(group, "Not available")
-            st.text_input(
-                f"{group} Code",
-                value=code,
-                disabled=True,
-                key=f"code_{group}"
-            )
+    # Admin section for group codes (only admins see this)
+    if is_admin():
+        with st.expander("🔑 Group Access Codes (Admin Only)", expanded=False):
+            st.subheader("Group Verification Codes")
+            codes = load_group_codes()
+            for group in [f"G{i}" for i in range(1,9)]:  # Show G1-G8 codes first
+                code = codes.get(group, "Not available")
+                st.text_input(
+                    f"{group} Code",
+                    value=code,
+                    disabled=True,
+                    key=f"code_{group}"
+                )
 
 # ------------------------------
 # Config Management
@@ -1192,6 +1437,9 @@ def save_config(config):
         with open(temp_file, "w") as f:
             json.dump(config, f, indent=2)
         os.replace(temp_file, CONFIG_FILE)
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
     except Exception as e:
         st.error(f"Error saving config: {str(e)}")
 
@@ -1423,7 +1671,7 @@ def render_signup_form():
                 return
             
             # Create user with group association
-            success, msg = register_user(new_username, new_password)
+            success, msg = register_user(new_username, new_password, group_name=group_name)
             if success:
                 # Add user to their group
                 add_group_member(group_name, new_username)
@@ -1512,6 +1760,12 @@ def restore_latest_backup():
     if group_backups:
         latest_group_backup = os.path.join(backup_folder, group_backups[0])
         shutil.copy2(latest_group_backup, "stuco_data/groups.json")
+    
+    # Restore reimbursements.json
+    reimb_backups = [f for f in backups if f.startswith("reimbursements.json_")]
+    if reimb_backups:
+        latest_reimb_backup = os.path.join(backup_folder, reimb_backups[0])
+        shutil.copy2(latest_reimb_backup, "stuco_data/reimbursements.json")
     
     return True, f"Restored latest backups: {app_backups[0] if app_backups else 'No app backup'}, {user_backups[0] if user_backups else 'No user backup'}, {group_backups[0] if group_backups else 'No group backup'}"
 
@@ -1897,8 +2151,14 @@ def render_main_app():
     with st.sidebar:
         st.subheader(f"Logged in as: {st.session_state.user}")
         st.markdown(render_role_badge(), unsafe_allow_html=True)
+        
+        # Show user's group if available
+        user_group = get_user_group(st.session_state.user)
+        if user_group:
+            st.info(f"Your Group: {user_group}")
 
-        if is_creator():
+        # Only show backup section to admins/creators
+        if is_admin():
             st.divider()
             st.subheader("📂 View stuco_data Files")
             
@@ -1928,28 +2188,27 @@ def render_main_app():
             else:
                 st.warning("stuco_data folder not found (app will create it when it runs)")
 
-        if is_creator():
             st.divider()
             st.subheader("Restore Backup")
             st.caption("Recover lost data (attendance, users, credits, groups)")
         
-        # Show available backups
-        backups = list_backups()
-        if backups:
-            st.info(f"Available backups ({len(backups)}):")
-            for i, backup in enumerate(backups[:5], 1):
-                st.text(f"{i}. {backup}")
-        else:
-            st.warning("No backups found.")
-        
-        # Restore button
-        if st.button("Restore Latest Backup", type="primary"):
-            success, msg = restore_latest_backup()
-            if success:
-                st.success(msg)
-                st.rerun()
+            # Show available backups
+            backups = list_backups()
+            if backups:
+                st.info(f"Available backups ({len(backups)}):")
+                for i, backup in enumerate(backups[:5], 1):
+                    st.text(f"{i}. {backup}")
             else:
-                st.error(msg)
+                st.warning("No backups found.")
+            
+            # Restore button
+            if st.button("Restore Latest Backup", type="primary"):
+                success, msg = restore_latest_backup()
+                if success:
+                    st.success(msg)
+                    st.rerun()
+                else:
+                    st.error(msg)
         
         if st.button("Logout", key="logout_btn", use_container_width=True):
             st.session_state.user = None
@@ -1998,6 +2257,7 @@ def render_main_app():
                     {
                         "Username": username,
                         "Role": user["role"].capitalize(),
+                        "Group": user.get("group", "N/A"),  # Show user's group
                         "Created": datetime.fromisoformat(user["created_at"]).strftime("%Y-%m-%d"),
                         "Last Login": datetime.fromisoformat(user["last_login"]).strftime("%Y-%m-%d") 
                                       if user["last_login"] else "Never"
@@ -2085,7 +2345,7 @@ def render_main_app():
                     st.error("Could not connect to Google Sheets")
 
     # ------------------------------
-    # Main Tabs (Added Groups tab)
+    # Main Tabs
     # ------------------------------
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "Calendar", 
@@ -2375,514 +2635,514 @@ def render_main_app():
                 net_occasional = (st.session_state.occasional_events['Total Funds Raised'] - st.session_state.occasional_events['Cost']).sum()
                 st.metric("Net from Occasional Events", f"${net_occasional:,.2f}")
 
-    # ------------------------------
-    # Tab 4: Attendance
-    # ------------------------------
-    with tab4:
-            st.subheader("Attendance Tracking")
-            if is_admin() and st.button("Reset Attendance Data", type="secondary"):
-                reset_attendance_data()
-                st.rerun()
+# ------------------------------
+# Tab 4: Attendance
+# ------------------------------
+with tab4:
+        st.subheader("Attendance Tracking")
+        if is_admin() and st.button("Reset Attendance Data", type="secondary"):
+            reset_attendance_data()
+            st.rerun()
+        
+        # Summary statistics
+        st.subheader("Attendance Summary")
+        attendance_rates = calculate_attendance_rates()
+        if attendance_rates:
+            st.dataframe(pd.DataFrame(list(attendance_rates.items()), columns=["Name", "Attendance Rate (%)"]), use_container_width=True)
+        else:
+            st.info("No attendance data to display (add meetings first)")
+        
+        # Detailed view for admins
+        if is_admin():
+            st.subheader("Detailed Attendance Records")
             
-            # Summary statistics
-            st.subheader("Attendance Summary")
-            attendance_rates = calculate_attendance_rates()
-            if attendance_rates:
-                st.dataframe(pd.DataFrame(list(attendance_rates.items()), columns=["Name", "Attendance Rate (%)"]), use_container_width=True)
+            if len(st.session_state.meeting_names) > 0:
+                st.caption("Quick Actions:")
+                # Arrange buttons in rows of 3 to prevent clutter
+                cols = st.columns(min(3, len(st.session_state.meeting_names)))
+                for i, meeting in enumerate(st.session_state.meeting_names):
+                    with cols[i % 3]:
+                        if st.button(
+                            f"Mark All Present: {meeting}",
+                            type="secondary",
+                            key=f"mark_all_{meeting}"
+                        ):
+                            success, msg = mark_all_present(meeting)
+                            if success:
+                                st.success(msg)
+                                st.rerun()
+                            else:
+                                st.error(msg)
+                st.divider()  # Separate buttons from the table
+            
+            if len(st.session_state.meeting_names) == 0:
+                st.info("No meetings created yet. Add your first meeting below.")
             else:
-                st.info("No attendance data to display (add meetings first)")
+                st.write("Update attendance records (check boxes for attendees):")
+                edited_df = st.data_editor(
+                    st.session_state.attendance,
+                    column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
+                    disabled=False,
+                    use_container_width=True
+                )
+                
+                if not edited_df.equals(st.session_state.attendance):
+                    st.session_state.attendance = edited_df
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                    if success:
+                        st.success("Attendance records updated")
+                    else:
+                        st.error(msg)
             
-            # Detailed view for admins
-            if is_admin():
-                st.subheader("Detailed Attendance Records")
-                
-                if len(st.session_state.meeting_names) > 0:
-                    st.caption("Quick Actions:")
-                    # Arrange buttons in rows of 3 to prevent clutter
-                    cols = st.columns(min(3, len(st.session_state.meeting_names)))
-                    for i, meeting in enumerate(st.session_state.meeting_names):
-                        with cols[i % 3]:
-                            if st.button(
-                                f"Mark All Present: {meeting}",
-                                type="secondary",
-                                key=f"mark_all_{meeting}"
-                            ):
-                                success, msg = mark_all_present(meeting)
-                                if success:
-                                    st.success(msg)
-                                    st.rerun()
-                                else:
-                                    st.error(msg)
-                    st.divider()  # Separate buttons from the table
-                
-                if len(st.session_state.meeting_names) == 0:
-                    st.info("No meetings created yet. Add your first meeting below.")
-                else:
-                    st.write("Update attendance records (check boxes for attendees):")
-                    edited_df = st.data_editor(
-                        st.session_state.attendance,
-                        column_config={"Name": st.column_config.TextColumn("Member Name", disabled=True)},
-                        disabled=False,
-                        use_container_width=True
-                    )
-                    
-                    if not edited_df.equals(st.session_state.attendance):
-                        st.session_state.attendance = edited_df
-                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                        if success:
-                            st.success("Attendance records updated")
-                        else:
-                            st.error(msg)
-                
-                # Meeting management
-                st.divider()
-                st.subheader("Manage Meetings")
-                col_add, col_remove = st.columns(2)
-                
-                with col_add:
-                    if st.button("Add New Meeting"):
-                        add_new_meeting()
-                
-                with col_remove:
-                    if st.session_state.meeting_names:
-                        meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
-                        if st.button("Remove Meeting", type="secondary"):
-                            delete_meeting(meeting_to_remove)
-                
-                # Member management
-                st.divider()
-                st.subheader("Manage Members")
-                col_add_mem, col_remove_mem = st.columns(2)
-                
-                with col_add_mem:
-                    new_member = st.text_input("Add New Member")
-                    if st.button("Add Member"):
-                        add_new_person(new_member)
-                
-                with col_remove_mem:
-                    if not st.session_state.attendance.empty:
-                        member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
-                        if st.button("Remove Member", type="secondary"):
-                            delete_person(member_to_remove)
+            # Meeting management
+            st.divider()
+            st.subheader("Manage Meetings")
+            col_add, col_remove = st.columns(2)
+            
+            with col_add:
+                if st.button("Add New Meeting"):
+                    add_new_meeting()
+            
+            with col_remove:
+                if st.session_state.meeting_names:
+                    meeting_to_remove = st.selectbox("Select Meeting to Remove", st.session_state.meeting_names)
+                    if st.button("Remove Meeting", type="secondary"):
+                        delete_meeting(meeting_to_remove)
+            
+            # Member management
+            st.divider()
+            st.subheader("Manage Members")
+            col_add_mem, col_remove_mem = st.columns(2)
+            
+            with col_add_mem:
+                new_member = st.text_input("Add New Member")
+                if st.button("Add Member"):
+                    add_new_person(new_member)
+            
+            with col_remove_mem:
+                if not st.session_state.attendance.empty:
+                    member_to_remove = st.selectbox("Select Member to Remove", st.session_state.attendance['Name'])
+                    if st.button("Remove Member", type="secondary"):
+                        delete_person(member_to_remove)
+
+# ------------------------------
+# Tab 5: Credit & Rewards
+# ------------------------------
+with tab5:
+    col_credits, col_rewards = st.columns(2)
 
     # ------------------------------
-    # Tab 5: Credit & Rewards
+    # Left Column: Credit Management
     # ------------------------------
-    with tab5:
-        col_credits, col_rewards = st.columns(2)
-    
-        # ------------------------------
-        # Left Column: Credit Management
-        # ------------------------------
-        with col_credits:
-            st.subheader("Student Credits")
-            # Show current credit data (sorted by name for easier finding)
-            st.dataframe(
-                st.session_state.credit_data.sort_values("Name").reset_index(drop=True),
-                use_container_width=True
-            )
-    
-            # 1. Excel Import (Keep for bulk adding students)
-            if is_admin() or is_credit_manager():
-                st.divider()
-                st.subheader("Import Students (Excel)")
-                st.caption("Uses 'student_council_members.xlsx' (all get 0 default credits)")
-                st.caption("⚠️ Replaces existing credit members (backup created automatically)")
-                
-                if st.button("Import from Excel", type="primary", key="credit_excel_import"):
-                    import_success, import_msg = import_credit_members_from_excel()
-                    if import_success:
-                        st.success(import_msg)
-                        st.rerun()
-                    else:
-                        st.error(import_msg)
-    
-            # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
-            if is_admin() or is_credit_manager():
-                st.divider()
-                st.subheader("Adjust Student Credits")
-                
-                # Step 1: Select student (dropdown, no typing)
-                if not st.session_state.credit_data.empty:
-                    # Sort students alphabetically for easier selection
-                    sorted_students = sorted(st.session_state.credit_data["Name"].tolist())
-                    selected_student = st.selectbox(
-                        "Choose a Student",
-                        options=sorted_students,
-                        key="credit_student_select"
-                    )
-    
-                    # Step 2: Choose action (Add or Remove)
-                    action = st.radio(
-                        "Action",
-                        options=["Add Credits", "Remove Credits"],
-                        key="credit_action"
-                    )
-    
-                    # Step 3: Enter specific credit amount
-                    credit_amount = st.number_input(
-                        "Credit Amount",
-                        min_value=1,  # Prevent 0 or negative amounts by default
-                        value=10,
-                        step=1,
-                        key="credit_amount"
-                    )
-    
-                    # Step 4: Confirm and apply change
-                    if st.button("Apply Change", type="secondary", key="credit_apply"):
-                        # Create backup first (safety first)
-                        backup_data()
-                        
-                        # Get current credit balance
-                        current_credits = st.session_state.credit_data.loc[
+    with col_credits:
+        st.subheader("Student Credits")
+        # Show current credit data (sorted by name for easier finding)
+        st.dataframe(
+            st.session_state.credit_data.sort_values("Name").reset_index(drop=True),
+            use_container_width=True
+        )
+
+        # 1. Excel Import (Keep for bulk adding students)
+        if is_admin() or is_credit_manager():
+            st.divider()
+            st.subheader("Import Students (Excel)")
+            st.caption("Uses 'student_council_members.xlsx' (all get 0 default credits)")
+            st.caption("⚠️ Replaces existing credit members (backup created automatically)")
+            
+            if st.button("Import from Excel", type="primary", key="credit_excel_import"):
+                import_success, import_msg = import_credit_members_from_excel()
+                if import_success:
+                    st.success(import_msg)
+                    st.rerun()
+                else:
+                    st.error(import_msg)
+
+        # 2. Simplified Credit Adjustment (Add/Remove Specific Amounts)
+        if is_admin() or is_credit_manager():
+            st.divider()
+            st.subheader("Adjust Student Credits")
+            
+            # Step 1: Select student (dropdown, no typing)
+            if not st.session_state.credit_data.empty:
+                # Sort students alphabetically for easier selection
+                sorted_students = sorted(st.session_state.credit_data["Name"].tolist())
+                selected_student = st.selectbox(
+                    "Choose a Student",
+                    options=sorted_students,
+                    key="credit_student_select"
+                )
+
+                # Step 2: Choose action (Add or Remove)
+                action = st.radio(
+                    "Action",
+                    options=["Add Credits", "Remove Credits"],
+                    key="credit_action"
+                )
+
+                # Step 3: Enter specific credit amount
+                credit_amount = st.number_input(
+                    "Credit Amount",
+                    min_value=1,  # Prevent 0 or negative amounts by default
+                    value=10,
+                    step=1,
+                    key="credit_amount"
+                )
+
+                # Step 4: Confirm and apply change
+                if st.button("Apply Change", type="secondary", key="credit_apply"):
+                    # Create backup first (safety first)
+                    backup_data()
+                    
+                    # Get current credit balance
+                    current_credits = st.session_state.credit_data.loc[
+                        st.session_state.credit_data["Name"] == selected_student,
+                        "Total_Credits"
+                    ].iloc[0]
+
+                    # Update credits based on action
+                    if action == "Add Credits":
+                        new_credits = current_credits + credit_amount
+                        st.session_state.credit_data.loc[
                             st.session_state.credit_data["Name"] == selected_student,
                             "Total_Credits"
-                        ].iloc[0]
-    
-                        # Update credits based on action
-                        if action == "Add Credits":
-                            new_credits = current_credits + credit_amount
+                        ] = new_credits
+                        success_msg = f"Added {credit_amount} credits to {selected_student} (New total: {new_credits})"
+                    
+                    else:  # Remove Credits
+                        # Prevent negative credits
+                        if current_credits >= credit_amount:
+                            new_credits = current_credits - credit_amount
                             st.session_state.credit_data.loc[
                                 st.session_state.credit_data["Name"] == selected_student,
                                 "Total_Credits"
                             ] = new_credits
-                            success_msg = f"Added {credit_amount} credits to {selected_student} (New total: {new_credits})"
-                        
-                        else:  # Remove Credits
-                            # Prevent negative credits
-                            if current_credits >= credit_amount:
-                                new_credits = current_credits - credit_amount
-                                st.session_state.credit_data.loc[
-                                    st.session_state.credit_data["Name"] == selected_student,
-                                    "Total_Credits"
-                                ] = new_credits
-                                success_msg = f"Removed {credit_amount} credits from {selected_student} (New total: {new_credits})"
-                            else:
-                                st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
-                                # Skip saving if removal would cause negative credits
-                                pass
-    
-                        # Save changes to file
-                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                        if save_success:
-                            st.success(success_msg)
-                            # Refresh to show updated credit table
-                            st.rerun()
+                            success_msg = f"Removed {credit_amount} credits from {selected_student} (New total: {new_credits})"
                         else:
-                            st.error(f"Failed to save changes: {save_msg}")
-    
-                else:
-                    # No students in credit system yet
-                    st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
-    
-                # 3. Remove Entire Student (Keep, with dropdown)
-                st.divider()
-                st.subheader("Remove Student from Credit System")
-                
-                if not st.session_state.credit_data.empty:
-                    student_to_remove = st.selectbox(
-                        "Select Student to Remove",
-                        options=sorted(st.session_state.credit_data["Name"].tolist()),
-                        key="credit_remove_select"
-                    )
-                    
-                    if st.button("Remove Student", type="secondary", key="credit_remove_btn"):
-                        # Create backup before deletion
-                        backup_data()
-                        
-                        # Remove student from credit data
-                        st.session_state.credit_data = st.session_state.credit_data[
-                            st.session_state.credit_data["Name"] != student_to_remove
-                        ].reset_index(drop=True)
-                        
-                        # Save changes
-                        save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                        if save_success:
-                            st.success(f"Removed {student_to_remove} from credit system")
-                            st.rerun()
-                        else:
-                            st.error(f"Failed to save changes: {save_msg}")
-                else:
-                    st.info("No students to remove (credit system is empty)")
+                            st.error(f"Cannot remove {credit_amount} credits—{selected_student} only has {current_credits} credits.")
+                            # Skip saving if removal would cause negative credits
+                            pass
 
-        # ------------------------------
-        # Right Column: Rewards & Lucky Draw
-        # ------------------------------
-        with col_rewards:
-            st.subheader("Available Rewards")
-            st.dataframe(st.session_state.reward_data, use_container_width=True)
-    
-            # Admin-only reward management
-            if is_admin() or is_credit_manager():
-                st.divider()
-                st.subheader("Manage Rewards (Admin/Credit Manager)")
-                
-                # Add new reward
-                with st.expander("Add New Reward", expanded=False):
-                    new_reward = st.text_input("Reward Name", "New Reward")
-                    reward_cost = st.number_input("Credit Cost", min_value=1, value=50)
-                    reward_stock = st.number_input("Initial Stock", min_value=0, value=10)
-                    
-                    if st.button("Add Reward"):
-                        new_row = pd.DataFrame({
-                            'Reward': [new_reward],
-                            'Cost': [reward_cost],
-                            'Stock': [reward_stock]
-                        })
-                        st.session_state.reward_data = pd.concat(
-                            [st.session_state.reward_data, new_row], ignore_index=True
-                        )
-                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                        if success:
-                            st.success(f"Added {new_reward} to rewards")
-                        else:
-                            st.error(msg)
-                
-                # Update existing reward
-                if not st.session_state.reward_data.empty:
-                    st.divider()
-                    st.subheader("Update Reward Stock")
-                    selected_reward = st.selectbox(
-                        "Select Reward", 
-                        st.session_state.reward_data['Reward']
-                    )
-                    
-                    current_stock = st.session_state.reward_data[
-                        st.session_state.reward_data['Reward'] == selected_reward
-                    ]['Stock'].iloc[0]
-                    
-                    new_stock = st.number_input(
-                        "New Stock Level", 
-                        min_value=0, 
-                        value=current_stock
-                    )
-                    
-                    if st.button("Update Stock"):
-                        st.session_state.reward_data.loc[
-                            st.session_state.reward_data['Reward'] == selected_reward,
-                            'Stock'
-                        ] = new_stock
-                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-                        if success:
-                            st.success(f"Updated {selected_reward} stock to {new_stock}")
-                        else:
-                            st.error(msg)
-    
-            # ------------------------------
-            # Lucky Draw Wheel
-            # ------------------------------
-            st.divider()
-            st.subheader("Lucky Draw Wheel")
-            
-            if st.session_state.spinning:
-                # Animate the wheel
-                progress_text = "Spinning the wheel..."
-                my_bar = st.progress(0, text=progress_text)
-                
-                for percent_complete in range(100):
-                    time.sleep(0.05)
-                    my_bar.progress(percent_complete + 1, text=progress_text)
-                
-                my_bar.empty()
-                st.session_state.spinning = False
-                
-                # Select random winner
-                st.session_state.winner = random.choice(st.session_state.wheel_prizes)
-                st.success(f"Congratulations! You won: {st.session_state.winner}")
-                
-                # Update stock if prize is a physical reward
-                if st.session_state.winner in st.session_state.reward_data['Reward'].values:
-                    st.session_state.reward_data.loc[
-                        st.session_state.reward_data['Reward'] == st.session_state.winner,
-                        'Stock'
-                    ] -= 1
-                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
-            
-            else:
-                # Display static wheel
-                fig = draw_wheel()
-                st.pyplot(fig)
-                
-                # Spin button
-                if st.button("Spin the Wheel!", type="primary"):
-                    st.session_state.spinning = True
-                    st.rerun()
-                
-                # Show last winner if exists
-                if st.session_state.winner:
-                    st.info(f"Last winner: {st.session_state.winner}")
-
-    # ------------------------------
-    # Tab 6: SCIS AI Tools
-    # ------------------------------
-    with tab6:
-        st.subheader("Student Council AI Assistant")
-        st.info("This section contains AI-powered tools to help with student council tasks.")
-        
-        # Event Idea Generator
-        with st.expander("Event Idea Generator", expanded=False):
-            st.subheader("Generate Creative Event Ideas")
-            budget = st.slider("Budget Range ($)", 100, 5000, 500)
-            audience = st.selectbox("Target Audience", ["All Students", "Freshmen", "Seniors", "Specific Clubs"])
-            duration = st.selectbox("Event Duration", ["1-2 Hours", "Half Day", "Full Day", "Multiple Days"])
-            
-            if st.button("Generate Ideas"):
-                with st.spinner("Generating event ideas..."):
-                    # In a real implementation, this would use an AI API
-                    ideas = [
-                        f"Eco-Friendly Carnival (Budget: ${budget-100}-${budget}): Games, recycling workshops, and plant sales",
-                        f"Talent Showcase Night (Budget: ${int(budget*0.8)}-${budget}): Students perform, with prizes for different categories",
-                        f"Career Exploration Fair (Budget: ${int(budget*0.7)}-${int(budget*0.9)}): Local professionals showcase different careers"
-                    ]
-                    
-                    for i, idea in enumerate(ideas, 1):
-                        st.success(f"Idea {i}: {idea}")
-        
-        # Speech Generator
-        with st.expander("Speech Generator", expanded=False):
-            st.subheader("Generate Speeches for Events")
-            occasion = st.text_input("Occasion", "Opening ceremony for new school year")
-            tone = st.selectbox("Tone", ["Inspirational", "Formal", "Casual", "Motivational"])
-            length = st.select_slider("Approximate Length", options=["Short (1 min)", "Medium (3 min)", "Long (5+ min)"])
-            
-            if st.button("Generate Speech"):
-                with st.spinner("Crafting your speech..."):
-                    # In a real implementation, this would use an AI API
-                    st.write("""**Speech for {occasion}**  
-                    
-                    Good morning everyone,
-                    
-                    Today marks a special moment in our school year. As we {context}, I'm reminded of the incredible potential we have when we work together.
-                    
-                    [Body of speech would go here, tailored to the specific occasion and tone]
-                    
-                    Let's make this year one to remember. Thank you!""".format(
-                        occasion=occasion,
-                        context="begin this new journey" if "new" in occasion.lower() else "gather here"
-                    ))
-        
-        # Survey Creator
-        with st.expander("Survey Creator", expanded=False):
-            st.subheader("Create Surveys for Students")
-            survey_topic = st.text_input("Survey Topic", "Student council event preferences")
-            num_questions = st.slider("Number of Questions", 3, 10, 5)
-            
-            if st.button("Generate Survey"):
-                with st.spinner("Creating survey..."):
-                    st.write(f"# Survey: {survey_topic}")
-                    for i in range(1, num_questions+1):
-                        st.write(f"Q{i}. [Sample question about {survey_topic.lower()}]")
-                        st.write("Options: Strongly Disagree | Disagree | Neutral | Agree | Strongly Agree")
-                    st.write("\n[Open-ended feedback question would go here]")
-
-    # ------------------------------
-    # Tab 7: Money Transfers
-    # ------------------------------
-    with tab7:
-        st.subheader("Financial Transactions")
-        
-        # Display transaction history
-        if not st.session_state.money_data.empty:
-            st.dataframe(
-                st.session_state.money_data.sort_values('Date', ascending=False),
-                use_container_width=True
-            )
-        else:
-            st.info("No financial transactions recorded yet")
-        
-        # Add new transaction (admin only)
-        if is_admin():
-            with st.expander("Record New Transaction (Admin Only)", expanded=False):
-                st.subheader("New Financial Transaction")
-                
-                # Transaction details form
-                col1, col2 = st.columns(2)
-                with col1:
-                    amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
-                    transaction_type = st.radio("Type", ["Income", "Expense"])
-                
-                with col2:
-                    description = st.text_input("Description", "Fundraising event proceeds")
-                    handled_by = st.text_input("Handled By", st.session_state.user)
-                
-                transaction_date = st.date_input("Transaction Date", date.today())
-                
-                if st.button("Record Transaction"):
-                    if amount <= 0:
-                        st.error("Amount must be greater than zero")
-                    elif not description.strip():
-                        st.error("Please enter a description")
+                    # Save changes to file
+                    save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                    if save_success:
+                        st.success(success_msg)
+                        # Refresh to show updated credit table
+                        st.rerun()
                     else:
-                        # Adjust amount based on transaction type
-                        recorded_amount = amount if transaction_type == "Income" else -amount
-                        
-                        # Create new transaction record
-                        new_transaction = pd.DataFrame({
-                            'Amount': [recorded_amount],
-                            'Description': [description],
-                            'Date': [transaction_date.strftime("%Y-%m-%d")],
-                            'Handled By': [handled_by]
-                        })
-                        
-                        # Add to transaction history
-                        st.session_state.money_data = pd.concat(
-                            [st.session_state.money_data, new_transaction], ignore_index=True
-                        )
-                        
-                        # Save changes
-                        success, msg = save_data(connect_gsheets())
-                        if success:
-                            st.success(f"Successfully recorded {transaction_type.lower()} of ${amount:.2f}")
-                        else:
-                            st.error(msg)
-        
-        # Financial summary
-        st.divider()
-        st.subheader("Financial Summary")
-        
-        if not st.session_state.money_data.empty:
-            # Calculate totals
-            total_income = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
-            total_expense = abs(st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum())
-            net_balance = total_income - total_expense
+                        st.error(f"Failed to save changes: {save_msg}")
+
+            else:
+                # No students in credit system yet
+                st.info("No students found in credit system. Use 'Import from Excel' to add students first.")
+
+            # 3. Remove Entire Student (Keep, with dropdown)
+            st.divider()
+            st.subheader("Remove Student from Credit System")
             
-            # Display metrics
-            col_inc, col_exp, col_bal = st.columns(3)
-            with col_inc:
-                st.metric("Total Income", f"${total_income:.2f}")
-            with col_exp:
-                st.metric("Total Expenses", f"${total_expense:.2f}")
-            with col_bal:
-                st.metric("Net Balance", f"${net_balance:.2f}")
-            
-            # Monthly breakdown chart
-            if st.checkbox("Show Monthly Breakdown"):
-                # Convert to datetime for grouping
-                st.session_state.money_data['Date'] = pd.to_datetime(st.session_state.money_data['Date'])
-                st.session_state.money_data['Month'] = st.session_state.money_data['Date'].dt.to_period('M')
+            if not st.session_state.credit_data.empty:
+                student_to_remove = st.selectbox(
+                    "Select Student to Remove",
+                    options=sorted(st.session_state.credit_data["Name"].tolist()),
+                    key="credit_remove_select"
+                )
                 
-                # Group by month
-                monthly_data = st.session_state.money_data.groupby('Month')['Amount'].sum().reset_index()
-                monthly_data['Month'] = monthly_data['Month'].astype(str)
-                
-                # Create and display chart
-                fig, ax = plt.subplots()
-                ax.bar(monthly_data['Month'], monthly_data['Amount'], color=['green' if x > 0 else 'red' for x in monthly_data['Amount']])
-                ax.set_title('Monthly Financial Overview')
-                ax.set_xlabel('Month')
-                ax.set_ylabel('Net Amount ($)')
-                plt.xticks(rotation=45)
-                st.pyplot(fig)
-        else:
-            st.info("No financial data available for summary")
+                if st.button("Remove Student", type="secondary", key="credit_remove_btn"):
+                    # Create backup before deletion
+                    backup_data()
+                    
+                    # Remove student from credit data
+                    st.session_state.credit_data = st.session_state.credit_data[
+                        st.session_state.credit_data["Name"] != student_to_remove
+                    ].reset_index(drop=True)
+                    
+                    # Save changes
+                    save_success, save_msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                    if save_success:
+                        st.success(f"Removed {student_to_remove} from credit system")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to save changes: {save_msg}")
+            else:
+                st.info("No students to remove (credit system is empty)")
 
     # ------------------------------
-    # Tab 8: Groups
+    # Right Column: Rewards & Lucky Draw
     # ------------------------------
-    with tab8:
-        group_management_ui()
-        group_diagnostics()
-        show_group_codes()
+    with col_rewards:
+        st.subheader("Available Rewards")
+        st.dataframe(st.session_state.reward_data, use_container_width=True)
+
+        # Admin-only reward management
+        if is_admin() or is_credit_manager():
+            st.divider()
+            st.subheader("Manage Rewards (Admin/Credit Manager)")
+            
+            # Add new reward
+            with st.expander("Add New Reward", expanded=False):
+                new_reward = st.text_input("Reward Name", "New Reward")
+                reward_cost = st.number_input("Credit Cost", min_value=1, value=50)
+                reward_stock = st.number_input("Initial Stock", min_value=0, value=10)
+                
+                if st.button("Add Reward"):
+                    new_row = pd.DataFrame({
+                        'Reward': [new_reward],
+                        'Cost': [reward_cost],
+                        'Stock': [reward_stock]
+                    })
+                    st.session_state.reward_data = pd.concat(
+                        [st.session_state.reward_data, new_row], ignore_index=True
+                    )
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                    if success:
+                        st.success(f"Added {new_reward} to rewards")
+                    else:
+                        st.error(msg)
+            
+            # Update existing reward
+            if not st.session_state.reward_data.empty:
+                st.divider()
+                st.subheader("Update Reward Stock")
+                selected_reward = st.selectbox(
+                    "Select Reward", 
+                    st.session_state.reward_data['Reward']
+                )
+                
+                current_stock = st.session_state.reward_data[
+                    st.session_state.reward_data['Reward'] == selected_reward
+                ]['Stock'].iloc[0]
+                
+                new_stock = st.number_input(
+                    "New Stock Level", 
+                    min_value=0, 
+                    value=current_stock
+                )
+                
+                if st.button("Update Stock"):
+                    st.session_state.reward_data.loc[
+                        st.session_state.reward_data['Reward'] == selected_reward,
+                        'Stock'
+                    ] = new_stock
+                    success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                    if success:
+                        st.success(f"Updated {selected_reward} stock to {new_stock}")
+                    else:
+                        st.error(msg)
+
+        # ------------------------------
+        # Lucky Draw Wheel
+        # ------------------------------
+        st.divider()
+        st.subheader("Lucky Draw Wheel")
+        
+        if st.session_state.spinning:
+            # Animate the wheel
+            progress_text = "Spinning the wheel..."
+            my_bar = st.progress(0, text=progress_text)
+            
+            for percent_complete in range(100):
+                time.sleep(0.05)
+                my_bar.progress(percent_complete + 1, text=progress_text)
+            
+            my_bar.empty()
+            st.session_state.spinning = False
+            
+            # Select random winner
+            st.session_state.winner = random.choice(st.session_state.wheel_prizes)
+            st.success(f"Congratulations! You won: {st.session_state.winner}")
+            
+            # Update stock if prize is a physical reward
+            if st.session_state.winner in st.session_state.reward_data['Reward'].values:
+                st.session_state.reward_data.loc[
+                    st.session_state.reward_data['Reward'] == st.session_state.winner,
+                    'Stock'
+                ] -= 1
+                success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+        
+        else:
+            # Display static wheel
+            fig = draw_wheel()
+            st.pyplot(fig)
+            
+            # Spin button
+            if st.button("Spin the Wheel!", type="primary"):
+                st.session_state.spinning = True
+                st.rerun()
+            
+            # Show last winner if exists
+            if st.session_state.winner:
+                st.info(f"Last winner: {st.session_state.winner}")
+
+# ------------------------------
+# Tab 6: SCIS AI Tools
+# ------------------------------
+with tab6:
+    st.subheader("Student Council AI Assistant")
+    st.info("This section contains AI-powered tools to help with student council tasks.")
+    
+    # Event Idea Generator
+    with st.expander("Event Idea Generator", expanded=False):
+        st.subheader("Generate Creative Event Ideas")
+        budget = st.slider("Budget Range ($)", 100, 5000, 500)
+        audience = st.selectbox("Target Audience", ["All Students", "Freshmen", "Seniors", "Specific Clubs"])
+        duration = st.selectbox("Event Duration", ["1-2 Hours", "Half Day", "Full Day", "Multiple Days"])
+        
+        if st.button("Generate Ideas"):
+            with st.spinner("Generating event ideas..."):
+                # In a real implementation, this would use an AI API
+                ideas = [
+                    f"Eco-Friendly Carnival (Budget: ${budget-100}-${budget}): Games, recycling workshops, and plant sales",
+                    f"Talent Showcase Night (Budget: ${int(budget*0.8)}-${budget}): Students perform, with prizes for different categories",
+                    f"Career Exploration Fair (Budget: ${int(budget*0.7)}-${int(budget*0.9)}): Local professionals showcase different careers"
+                ]
+                
+                for i, idea in enumerate(ideas, 1):
+                    st.success(f"Idea {i}: {idea}")
+    
+    # Speech Generator
+    with st.expander("Speech Generator", expanded=False):
+        st.subheader("Generate Speeches for Events")
+        occasion = st.text_input("Occasion", "Opening ceremony for new school year")
+        tone = st.selectbox("Tone", ["Inspirational", "Formal", "Casual", "Motivational"])
+        length = st.select_slider("Approximate Length", options=["Short (1 min)", "Medium (3 min)", "Long (5+ min)"])
+        
+        if st.button("Generate Speech"):
+            with st.spinner("Crafting your speech..."):
+                # In a real implementation, this would use an AI API
+                st.write("""**Speech for {occasion}**  
+
+                Good morning everyone,
+
+                Today marks a special moment in our school year. As we {context}, I'm reminded of the incredible potential we have when we work together.
+
+                [Body of speech would go here, tailored to the specific occasion and tone]
+
+                Let's make this year one to remember. Thank you!""".format(
+                    occasion=occasion,
+                    context="begin this new journey" if "new" in occasion.lower() else "gather here"
+                ))
+    
+    # Survey Creator
+    with st.expander("Survey Creator", expanded=False):
+        st.subheader("Create Surveys for Students")
+        survey_topic = st.text_input("Survey Topic", "Student council event preferences")
+        num_questions = st.slider("Number of Questions", 3, 10, 5)
+        
+        if st.button("Generate Survey"):
+            with st.spinner("Creating survey..."):
+                st.write(f"# Survey: {survey_topic}")
+                for i in range(1, num_questions+1):
+                    st.write(f"Q{i}. [Sample question about {survey_topic.lower()}]")
+                    st.write("Options: Strongly Disagree | Disagree | Neutral | Agree | Strongly Agree")
+                st.write("\n[Open-ended feedback question would go here]")
+
+# ------------------------------
+# Tab 7: Money Transfers
+# ------------------------------
+with tab7:
+    st.subheader("Financial Transactions")
+    
+    # Display transaction history
+    if not st.session_state.money_data.empty:
+        st.dataframe(
+            st.session_state.money_data.sort_values('Date', ascending=False),
+            use_container_width=True
+        )
+    else:
+        st.info("No financial transactions recorded yet")
+    
+    # Add new transaction (admin only)
+    if is_admin():
+        with st.expander("Record New Transaction (Admin Only)", expanded=False):
+            st.subheader("New Financial Transaction")
+            
+            # Transaction details form
+            col1, col2 = st.columns(2)
+            with col1:
+                amount = st.number_input("Amount ($)", value=0.0, step=10.0, format="%.2f")
+                transaction_type = st.radio("Type", ["Income", "Expense"])
+            
+            with col2:
+                description = st.text_input("Description", "Fundraising event proceeds")
+                handled_by = st.text_input("Handled By", st.session_state.user)
+            
+            transaction_date = st.date_input("Transaction Date", date.today())
+            
+            if st.button("Record Transaction"):
+                if amount <= 0:
+                    st.error("Amount must be greater than zero")
+                elif not description.strip():
+                    st.error("Please enter a description")
+                else:
+                    # Adjust amount based on transaction type
+                    recorded_amount = amount if transaction_type == "Income" else -amount
+                    
+                    # Create new transaction record
+                    new_transaction = pd.DataFrame({
+                        'Amount': [recorded_amount],
+                        'Description': [description],
+                        'Date': [transaction_date.strftime("%Y-%m-%d")],
+                        'Handled By': [handled_by]
+                    })
+                    
+                    # Add to transaction history
+                    st.session_state.money_data = pd.concat(
+                        [st.session_state.money_data, new_transaction], ignore_index=True
+                    )
+                    
+                    # Save changes
+                    success, msg = save_data(connect_gsheets())
+                    if success:
+                        st.success(f"Successfully recorded {transaction_type.lower()} of ${amount:.2f}")
+                    else:
+                        st.error(msg)
+    
+    # Financial summary
+    st.divider()
+    st.subheader("Financial Summary")
+    
+    if not st.session_state.money_data.empty:
+        # Calculate totals
+        total_income = st.session_state.money_data[st.session_state.money_data['Amount'] > 0]['Amount'].sum()
+        total_expense = abs(st.session_state.money_data[st.session_state.money_data['Amount'] < 0]['Amount'].sum())
+        net_balance = total_income - total_expense
+        
+        # Display metrics
+        col_inc, col_exp, col_bal = st.columns(3)
+        with col_inc:
+            st.metric("Total Income", f"${total_income:.2f}")
+        with col_exp:
+            st.metric("Total Expenses", f"${total_expense:.2f}")
+        with col_bal:
+            st.metric("Net Balance", f"${net_balance:.2f}")
+        
+        # Monthly breakdown chart
+        if st.checkbox("Show Monthly Breakdown"):
+            # Convert to datetime for grouping
+            st.session_state.money_data['Date'] = pd.to_datetime(st.session_state.money_data['Date'])
+            st.session_state.money_data['Month'] = st.session_state.money_data['Date'].dt.to_period('M')
+            
+            # Group by month
+            monthly_data = st.session_state.money_data.groupby('Month')['Amount'].sum().reset_index()
+            monthly_data['Month'] = monthly_data['Month'].astype(str)
+            
+            # Create and display chart
+            fig, ax = plt.subplots()
+            ax.bar(monthly_data['Month'], monthly_data['Amount'], color=['green' if x > 0 else 'red' for x in monthly_data['Amount']])
+            ax.set_title('Monthly Financial Overview')
+            ax.set_xlabel('Month')
+            ax.set_ylabel('Net Amount ($)')
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+    else:
+        st.info("No financial data available for summary")
+
+# ------------------------------
+# Tab 8: Groups
+# ------------------------------
+with tab8:
+    group_management_ui()
+    group_diagnostics()
+    show_group_codes()
 
 # ------------------------------
 # Main Execution Flow
@@ -2911,9 +3171,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
