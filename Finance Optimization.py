@@ -2278,14 +2278,15 @@ def render_main_app():
                     if st.button(
                         "Add Member", 
                         type="secondary",
-                        key=f"add_member_{group_name}"  # Unique key using group name
+                        key=f"add_member_{group_name}"  # Unique key
                     ):
+                        # Make sure this code is indented exactly once (4 spaces) under the if statement
                         success, msg = add_group_member(group_name, new_member)
-                            if success:
-                                st.success(msg)
-                                st.rerun()
-                            else:
-                                st.error(msg)
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
                     else:
                         st.info("All members are already in this group")
                 
@@ -2403,6 +2404,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
