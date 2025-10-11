@@ -30,6 +30,83 @@ REIMBURSEMENTS_FILE = os.path.join(DATA_DIR, "reimbursements.json")
 GROUP_CODES_FILE = os.path.join(DATA_DIR, "group_codes.json")
 CONFIG_FILE = os.path.join(DATA_DIR, "app_config.json")
 
+st.markdown("""
+<style>
+.day-header {
+    text-align: center;
+    font-weight: bold;
+    padding: 8px;
+    background-color: #f0f2f6;
+    border-radius: 4px;
+}
+
+.calendar-day {
+    text-align: center;
+    padding: 10px 5px;
+    min-height: 80px;
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    margin: 2px;
+}
+
+.calendar-day.other-month {
+    background-color: #fafafa;
+    color: #999;
+}
+
+.calendar-day.today {
+    background-color: #e3f2fd;
+    border: 2px solid #2196f3;
+}
+
+.plan-text {
+    font-size: 0.8em;
+    margin-top: 5px;
+    color: #333;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.role-badge {
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: bold;
+}
+
+.group-card {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.group-header {
+    font-weight: bold;
+    font-size: 1.2em;
+    margin-bottom: 10px;
+}
+
+.meeting-item {
+    background-color: #ffffff;
+    border-left: 3px solid #2196f3;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+}
+
+.reimbursement-item {
+    background-color: #ffffff;
+    border-left: 3px solid #4caf50;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-radius: 4px;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ------------------------------
 # Google Sheets Integration
 # ------------------------------
@@ -3062,3 +3139,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
