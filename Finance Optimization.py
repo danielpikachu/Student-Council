@@ -21,6 +21,7 @@ import base64
 WELCOME_MESSAGE = "Welcome to SCIS Student Council Management System"
 CREATOR_ROLE = "creator"  # Special role with full access
 ROLES = ["admin", "credit_manager", "user"]
+
 DATA_DIR = "stuco_data"
 BACKUP_DIR = os.path.join(DATA_DIR, "backups")
 DATA_FILE = os.path.join(DATA_DIR, "app_data.json")
@@ -111,36 +112,48 @@ st.markdown("""
 # Google Sheets Integration
 # ------------------------------
 def connect_gsheets():
-    """Connect to Google Sheets with improved error handling"""
     try:
-        # Check if credentials are available
-        if "gcp_service_account" not in st.secrets:
-            st.warning("Google Sheets integration not configured - using local storage only")
-            return None
-
-        # Set up credentials
-        credentials = Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"],
+        # Extract secrets from Streamlit's secrets manager
+        google_secrets = st.secrets["google_sheets"]
+        
+        # Create credentials dictionary
+        credentials = {
+            "type": "service_account",
+            "project_id": "studentcouncilapp-474307",  # Derived from your service account email
+            "private_key_id": google_secrets["private_key_id"],
+            "private_key": google_secrets["private_key"].replace("\\n", "\n"),  # Fix newline characters
+            "client_email": google_secrets["service_account_email"],
+            "client_id": "",
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+            "client_x509_cert_url": f"https://www.googleapis.com/robot/v1/metadata/x509/{google_secrets['service_account_email']}"
+        }
+        
+        # Create credentials object
+        creds = Credentials.from_service_account_info(
+            credentials,
             scopes=[
                 "https://www.googleapis.com/auth/spreadsheets",
                 "https://www.googleapis.com/auth/drive"
-            ],
+            ]
         )
-
-        # Authorize and connect
-        client = gspread.authorize(credentials)
         
-        # Check if sheet ID is available
-        if "sheet_id" not in st.secrets:
-            st.warning("Google Sheet ID not configured - using local storage only")
-            return None
-            
-        # Open the sheet
-        sheet = client.open_by_key(st.secrets["sheet_id"])
+        # Authenticate and connect
+        client = gspread.authorize(creds)
+        
+        # Extract spreadsheet ID from URL
+        sheet_url = google_secrets["sheet_url"]
+        spreadsheet_id = sheet_url.split("/d/")[1].split("/")[0]
+        
+        # Open the spreadsheet
+        sheet = client.open_by_key(spreadsheet_id)
+        st.success("Successfully connected to Google Sheets!")
         return sheet
         
     except Exception as e:
-        st.warning(f"Google Sheets connection failed: {str(e)} - using local storage instead")
+        st.error(f"Failed to connect to Google Sheets: {str(e)}")
+        st.info("Using local storage only")
         return None
 
 # ------------------------------
@@ -3139,4 +3152,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
