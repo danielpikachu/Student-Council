@@ -1127,7 +1127,6 @@ def save_data(sheet=None):
                             # Check for required columns before syncing
                             required_columns = {
                                 "credit_data": ["Name"],
-                                "attendance": ["Name", "Date"],
                                 # Add other data types' required columns as needed
                             }
                             
@@ -3330,6 +3329,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
