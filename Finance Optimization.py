@@ -2949,7 +2949,8 @@ def render_main_app():
             # Validate credit_data and 'Name' column before using
             if 'credit_data' in st.session_state and isinstance(st.session_state.credit_data, pd.DataFrame):
                 if not st.session_state.credit_data.empty and 'Name' in st.session_state.credit_data.columns:
-                    student_names = st.session_state.credit_data['Name']
+                    # Convert pandas Series to a Python list (KEY FIX 1)
+                    student_names = st.session_state.credit_data['Name'].tolist()
                 else:
                     st.error("Credit data is empty or missing 'Name' column")
                     student_names = []  # Empty list as fallback
@@ -2960,9 +2961,10 @@ def render_main_app():
             with col_add1:
                 student_to_credit = st.selectbox(
                     "Select Student",
-                    student_names,  # Use the validated list
+                    student_names,  # Now using a proper list
                     key="student_credit_select",
-                    disabled=not student_names  # Disable if no names available
+                    # Check if list is empty using len() (KEY FIX 2)
+                    disabled=len(student_names) == 0  # Disable if no names available
                 )
             with col_add2:
                 credit_amount = st.number_input(
@@ -3291,6 +3293,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
