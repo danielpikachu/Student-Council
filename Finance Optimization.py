@@ -1072,6 +1072,8 @@ def save_data(sheet=None):
                 continue
                 
             value = st.session_state[key]
+            # Convert numpy types first
+            value = convert_numpy_types(value)
             
             # 1. Check for DataFrames - using pd.DataFrame type directly
             if isinstance(value, pd.DataFrame):
@@ -1080,6 +1082,9 @@ def save_data(sheet=None):
                     continue
                 
                 df = value.copy()
+                # Apply numpy conversion to all elements in DataFrame
+                df = df.applymap(convert_numpy_types)
+                
                 # Check for datetime columns using pandas' type checking
                 for col in df.columns:
                     if pd.api.types.is_datetime64_any_dtype(df[col]):
@@ -1122,8 +1127,14 @@ def save_data(sheet=None):
             for data_key, worksheet_name in data_sync:
                 if data_key in st.session_state:
                     try:
+                        # Get value and convert numpy types
+                        value = convert_numpy_types(st.session_state[data_key])
+                        
                         # Handle DataFrames with validation
-                        if isinstance(st.session_state[data_key], pd.DataFrame) and not st.session_state[data_key].empty:
+                        if isinstance(value, pd.DataFrame) and not value.empty:
+                            # Apply numpy conversion to all elements
+                            df = value.applymap(convert_numpy_types)
+                            
                             # Check for required columns before syncing
                             required_columns = {
                                 "credit_data": ["Name"],
@@ -1133,7 +1144,7 @@ def save_data(sheet=None):
                             
                             # Validate required columns if defined for this data type
                             if data_key in required_columns:
-                                missing = [col for col in required_columns[data_key] if col not in st.session_state[data_key].columns]
+                                missing = [col for col in required_columns[data_key] if col not in df.columns]
                                 if missing:
                                     st.warning(f"Missing columns in {data_key}: {missing}. Skipping sync.")
                                     continue
@@ -1141,17 +1152,16 @@ def save_data(sheet=None):
                             ws = sheet.worksheet(worksheet_name)
                             ws.clear()  # Clear existing data
                             # Prepare data with headers
-                            data = [st.session_state[data_key].columns.tolist()] + \
-                                   st.session_state[data_key].values.tolist()
+                            data = [df.columns.tolist()] + df.values.tolist()
                             ws.update(data)
                             
                         # Handle user dictionary
-                        elif data_key == "users" and st.session_state[data_key]:
+                        elif data_key == "users" and value:
                             ws = sheet.worksheet(worksheet_name)
                             ws.clear()
                             # Prepare user data with headers
                             user_data = [["Username", "Password Hash", "Role", "Last Login"]]
-                            for user, details in st.session_state[data_key].items():
+                            for user, details in value.items():
                                 user_data.append([
                                     user,
                                     details["password"],
@@ -3310,6 +3320,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
