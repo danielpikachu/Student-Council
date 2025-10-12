@@ -1037,7 +1037,13 @@ def save_data(sheet=None):
         
         # Convert DataFrames to dictionaries for local storage
         for key in st.session_state:
+            # Validate DataFrames before processing
             if isinstance(st.session_state[key], pd.DataFrame):
+                # Check if DataFrame is empty
+                if st.session_state[key].empty:
+                    st.warning(f"Session state {key} is an empty DataFrame")
+                    continue
+                # Convert to dict only if valid
                 data_to_save[key] = st.session_state[key].to_dict('records')
             elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
                 data_to_save[key] = st.session_state[key]
@@ -1072,8 +1078,22 @@ def save_data(sheet=None):
             for data_key, worksheet_name in data_sync:
                 if data_key in st.session_state:
                     try:
-                        # Handle DataFrames
+                        # Handle DataFrames with validation
                         if isinstance(st.session_state[data_key], pd.DataFrame) and not st.session_state[data_key].empty:
+                            # Check for required columns before syncing
+                            required_columns = {
+                                "credit_data": ["Name"],  # Ensure Name column exists for credit_data
+                                "attendance": ["Name", "Date"],  # Example other required columns
+                                # Add other data types' required columns as needed
+                            }
+                            
+                            # Validate required columns if defined for this data type
+                            if data_key in required_columns:
+                                missing = [col for col in required_columns[data_key] if col not in st.session_state[data_key].columns]
+                                if missing:
+                                    st.warning(f"Missing columns in {data_key}: {missing}. Skipping sync.")
+                                    continue
+                            
                             ws = sheet.worksheet(worksheet_name)
                             ws.clear()  # Clear existing data
                             # Prepare data with headers
@@ -3202,6 +3222,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
