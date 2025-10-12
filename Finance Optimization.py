@@ -1152,7 +1152,7 @@ def login_ui():
                     st.warning("Too many attempts. Please try again later.")
 
 def group_management_ui():
-    """Enhanced group management interface with detailed views and reimbursement feature"""
+    """Group management interface with detailed views and reimbursement feature"""
     st.subheader("📊 Group Management System")
     
     # Show initialization status
@@ -1299,11 +1299,24 @@ def group_management_ui():
         
         # Get relevant requests (all for admins, only user's group for regular users)
         if is_admin():
-            relevant_requests = st.session_state.reimbursements["requests"]
-        elif user_group:
-            relevant_requests = [r for r in st.session_state.reimbursements["requests"] if r["group"] == user_group]
-        else:
             relevant_requests = []
+        
+        # Check if reimbursements data exists and is valid
+        if 'reimbursements' in st.session_state and isinstance(st.session_state.reimbursements, dict):
+            # Check if requests key exists and is a list
+            if "requests" in st.session_state.reimbursements and isinstance(st.session_state.reimbursements["requests"], list):
+                all_requests = st.session_state.reimbursements["requests"]
+                
+                # Filter based on user role/group
+                if is_admin():
+                    relevant_requests = all_requests
+                elif user_group:
+                    relevant_requests = [r for r in all_requests if r.get("group") == user_group]
+                # else remains empty list as defined initially
+            else:
+                st.error("Reimbursements data is missing 'requests' key or it's not a list")
+        else:
+            st.error("Reimbursements data not found or is in invalid format")
         
         # Display requests
         if relevant_requests:
@@ -3235,6 +3248,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
