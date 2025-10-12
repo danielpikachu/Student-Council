@@ -1029,95 +1029,79 @@ def load_data(sheet):
     except Exception as e:
         return False, f"Error loading data: {str(e)}"
 
-def save_data(sheet):
-    """
-    Saves all application data to Google Sheets (if connected) or local storage
-    Returns (success: bool, message: str)
-    """
+def save_data(sheet=None):
+    """Save application data to local storage and Google Sheets (if available)"""
     try:
-        # If connected to Google Sheets, save there first
+        backup_data()  # Keep your existing backup function
+        data_to_save = {}
+        
+        # Convert DataFrames to dictionaries for local storage
+        for key in st.session_state:
+            if isinstance(st.session_state[key], pd.DataFrame):
+                data_to_save[key] = st.session_state[key].to_dict('records')
+            elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
+                data_to_save[key] = st.session_state[key]
+                
+        # Safe local file writing (preserving your original approach)
+        temp_file = f"{DATA_FILE}.tmp"
+        with open(temp_file, "w") as f:
+            json.dump(data_to_save, f, indent=2)
+        os.replace(temp_file, DATA_FILE)
+        
+        # Clean up temp file if needed
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+        
+        # Save reimbursement data separately (keeping your existing functionality)
+        save_reimbursement_data()
+        
+        # Enhanced Google Sheets integration
         if sheet:
-            # 1. Save Attendance data
-            if "attendance" in st.session_state and not st.session_state.attendance.empty:
-                attendance_ws = sheet.worksheet("Attendance")
-                # Clear existing data and update with new data
-                attendance_ws.clear()
-                # Convert dataframe to list of lists (including header)
-                attendance_data = [st.session_state.attendance.columns.tolist()] + \
-                                 st.session_state.attendance.values.tolist()
-                attendance_ws.update(attendance_data)
-
-            # 2. Save Events data
-            if "occasional_events" in st.session_state and not st.session_state.occasional_events.empty:
-                events_ws = sheet.worksheet("Events")
-                events_ws.clear()
-                events_data = [st.session_state.occasional_events.columns.tolist()] + \
-                             st.session_state.occasional_events.values.tolist()
-                events_ws.update(events_data)
-
-            # 3. Save Financial data
-            if "money_data" in st.session_state and not st.session_state.money_data.empty:
-                finances_ws = sheet.worksheet("Finances")
-                finances_ws.clear()
-                # Ensure date is in string format for Sheets
-                money_data = st.session_state.money_data.copy()
-                if 'Date' in money_data.columns:
-                    money_data['Date'] = money_data['Date'].astype(str)
-                finances_data = [money_data.columns.tolist()] + money_data.values.tolist()
-                finances_ws.update(finances_data)
-
-            # 4. Save Credits data
-            if "credit_data" in st.session_state and not st.session_state.credit_data.empty:
-                credits_ws = sheet.worksheet("Credits")
-                credits_ws.clear()
-                credits_data = [st.session_state.credit_data.columns.tolist()] + \
-                              st.session_state.credit_data.values.tolist()
-                credits_ws.update(credits_data)
-
-            # 5. Save Rewards data
-            if "reward_data" in st.session_state and not st.session_state.reward_data.empty:
-                rewards_ws = sheet.worksheet("Rewards")
-                rewards_ws.clear()
-                rewards_data = [st.session_state.reward_data.columns.tolist()] + \
-                              st.session_state.reward_data.values.tolist()
-                rewards_ws.update(rewards_data)
-
-            # 6. Save User data
-            if "users" in st.session_state and st.session_state.users:
-                users_ws = sheet.worksheet("Users")
-                users_ws.clear()
-                # Convert user dictionary to list of lists
-                users_data = [["Username", "Password Hash", "Role", "Last Login"]]
-                for user, details in st.session_state.users.items():
-                    users_data.append([
-                        user,
-                        details["password"],
-                        details["role"],
-                        details.get("last_login", "")
-                    ])
-                users_ws.update(users_data)
-
-            # Record last sync time
-            st.session_state.last_sync = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            return True, f"Data successfully synced to Google Sheets at {st.session_state.last_sync}"
-
-        # If no Google Sheets connection, save to local storage
-        else:
-            local_data = {
-                "attendance": st.session_state.attendance.to_dict() if "attendance" in st.session_state else None,
-                "occasional_events": st.session_state.occasional_events.to_dict() if "occasional_events" in st.session_state else None,
-                "money_data": st.session_state.money_data.to_dict() if "money_data" in st.session_state else None,
-                "credit_data": st.session_state.credit_data.to_dict() if "credit_data" in st.session_state else None,
-                "reward_data": st.session_state.reward_data.to_dict() if "reward_data" in st.session_state else None,
-                "users": st.session_state.users if "users" in st.session_state else None,
-                "last_sync": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-
-            with open("local_data.json", "w") as f:
-                json.dump(local_data, f)
+            # Create a list of data types to sync with their worksheet names
+            data_sync = [
+                ("attendance", "Attendance"),
+                ("occasional_events", "Events"),
+                ("money_data", "Finances"),
+                ("credit_data", "Credits"),
+                ("reward_data", "Rewards"),
+                ("users", "Users"),
+                ("reimbursements", "Reimbursements")
+            ]
             
-            return True, "Data saved to local storage"
-
+            # Sync each data type if it exists in session state
+            for data_key, worksheet_name in data_sync:
+                if data_key in st.session_state:
+                    try:
+                        # Handle DataFrames
+                        if isinstance(st.session_state[data_key], pd.DataFrame) and not st.session_state[data_key].empty:
+                            ws = sheet.worksheet(worksheet_name)
+                            ws.clear()  # Clear existing data
+                            # Prepare data with headers
+                            data = [st.session_state[data_key].columns.tolist()] + \
+                                   st.session_state[data_key].values.tolist()
+                            ws.update(data)
+                            
+                        # Handle user dictionary
+                        elif data_key == "users" and st.session_state[data_key]:
+                            ws = sheet.worksheet(worksheet_name)
+                            ws.clear()
+                            # Prepare user data with headers
+                            user_data = [["Username", "Password Hash", "Role", "Last Login"]]
+                            for user, details in st.session_state[data_key].items():
+                                user_data.append([
+                                    user,
+                                    details["password"],
+                                    details["role"],
+                                    details.get("last_login", "")
+                                ])
+                            ws.update(user_data)
+                            
+                    except Exception as e:
+                        st.warning(f"Could not sync {data_key} to Google Sheets: {str(e)}")
+                        continue  # Continue with other data types even if one fails
+        
+        return True, "Data saved successfully (local storage and Google Sheets where available)"
+        
     except Exception as e:
         return False, f"Error saving data: {str(e)}"
 
@@ -3206,6 +3190,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
