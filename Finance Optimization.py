@@ -2990,20 +2990,22 @@ def render_main_app():
             # Validate credit_data and 'Name' column before using
             if 'credit_data' in st.session_state and isinstance(st.session_state.credit_data, pd.DataFrame):
                 if not st.session_state.credit_data.empty and 'Name' in st.session_state.credit_data.columns:
-                    redeem_student_names = st.session_state.credit_data['Name']
+                    # Convert pandas Series to Python list (critical fix)
+                    redeem_student_names = st.session_state.credit_data['Name'].tolist()
                 else:
                     st.error("Credit data is empty or missing 'Name' column")
-                    redeem_student_names = []  # Empty list as fallback
+                    redeem_student_names = []  # Empty list fallback
             else:
                 st.error("Credit data not found in system")
-                redeem_student_names = []  # Empty list as fallback
-
+                redeem_student_names = []  # Empty list fallback
+            
             with col_red1:
                 student_redeem = st.selectbox(
                     "Student Redeeming",
-                    st.session_state.credit_data['Name'],  # Needs .tolist()
+                    redeem_student_names,  # Use the converted list
                     key="student_redeem_select",
-                    disabled=not redeem_student_names  # Needs len() check
+                    # Proper empty list check using len() (critical fix)
+                    disabled=len(redeem_student_names) == 0
                 )
             with col_red2:
                 reward_selected = st.selectbox(
@@ -3293,6 +3295,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
