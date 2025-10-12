@@ -2997,13 +2997,13 @@ def render_main_app():
             else:
                 st.error("Credit data not found in system")
                 redeem_student_names = []  # Empty list as fallback
-            
+
             with col_red1:
                 student_redeem = st.selectbox(
                     "Student Redeeming",
-                    redeem_student_names,  # Use validated list
+                    st.session_state.credit_data['Name'],  # Needs .tolist()
                     key="student_redeem_select",
-                    disabled=not redeem_student_names  # Disable if no valid data
+                    disabled=not redeem_student_names  # Needs len() check
                 )
             with col_red2:
                 reward_selected = st.selectbox(
@@ -3293,6 +3293,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
