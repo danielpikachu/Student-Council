@@ -1363,16 +1363,36 @@ def group_management_ui():
         # Display requests
         if relevant_requests:
             # Sort by date (newest first)
-            relevant_requests.sort(key=lambda x: x["submitted_at"], reverse=True)
+            # Add safety check for the 'submitted_at' key before sorting
+            relevant_requests.sort(
+                key=lambda x: x.get("submitted_at", ""), 
+                reverse=True
+            )
             
             for req in relevant_requests:
-                status_color = "orange" if req["status"] == "pending" else "green" if req["status"] == "approved" else "red"
-                with st.expander(f"Request {req['id']} - Status: <span style='color:{status_color}'>{req['status'].upper()}</span>", expanded=False):
-                    st.write(f"**Group:** {req['group']}")
-                    st.write(f"**Amount:** ${req['amount']:.2f}")
-                    st.write(f"**Description:** {req['description']}")
-                    st.write(f"**Submitted by:** {req['submitted_by']}")
-                    st.write(f"**Submitted on:** {datetime.fromisoformat(req['submitted_at']).strftime('%Y-%m-%d %H:%M')}")
+                # Use get() with defaults to prevent KeyErrors
+                status = req.get("status", "unknown")
+                status_color = "orange" if status == "pending" else "green" if status == "approved" else "red"
+                
+                with st.expander(
+                    f"Request {req.get('id', 'N/A')} - Status: <span style='color:{status_color}'>{status.upper()}</span>", 
+                    expanded=False
+                ):
+                    st.write(f"**Group:** {req.get('group', 'N/A')}")
+                    st.write(f"**Amount:** ${req.get('amount', 0):.2f}")
+                    st.write(f"**Description:** {req.get('description', 'No description')}")
+                    st.write(f"**Submitted by:** {req.get('submitted_by', 'Unknown')}")
+                    
+                    # Safely handle date formatting
+                    submitted_at = req.get('submitted_at')
+                    if submitted_at:
+                        try:
+                            formatted_date = datetime.fromisoformat(submitted_at).strftime('%Y-%m-%d %H:%M')
+                            st.write(f"**Submitted on:** {formatted_date}")
+                        except ValueError:
+                            st.write(f"**Submitted on:** Invalid date format")
+                    else:
+                        st.write(f"**Submitted on:** No date available")
                     
                     # Show file if available
                     if req.get("file"):
@@ -3329,6 +3349,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
