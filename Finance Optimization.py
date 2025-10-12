@@ -1339,9 +1339,12 @@ def group_management_ui():
         # Reimbursement section
         st.subheader("💸 Reimbursement Requests")
         
+        # Initialize relevant_requests BEFORE any conditionals to ensure it exists
+        relevant_requests = []  # Critical fix: Initialize here
+        
         # Get relevant requests (all for admins, only user's group for regular users)
         if is_admin():
-            relevant_requests = []
+            relevant_requests = []  # This line is redundant now but harmless
         
         # Check if reimbursements data exists and is valid
         if 'reimbursements' in st.session_state and isinstance(st.session_state.reimbursements, dict):
@@ -1360,10 +1363,8 @@ def group_management_ui():
         else:
             st.error("Reimbursements data not found or is in invalid format")
         
-        # Display requests
+        # Display requests - now safe because relevant_requests is guaranteed to exist
         if relevant_requests:
-            # Sort by date (newest first)
-            # Add safety check for the 'submitted_at' key before sorting
             relevant_requests.sort(
                 key=lambda x: x.get("submitted_at", ""), 
                 reverse=True
@@ -1494,7 +1495,6 @@ def group_management_ui():
                     disabled=True,
                     key=f"code_{group}"
                 )
-
 # ------------------------------
 # Config Management
 # ------------------------------
@@ -3349,6 +3349,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
