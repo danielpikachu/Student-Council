@@ -1053,7 +1053,7 @@ def load_data(sheet):
         
     except Exception as e:
         return False, f"Error loading data: {str(e)}"
-
+        
 def save_data(sheet=None):
     try:
         if 'backup_data' in globals():
@@ -1090,14 +1090,14 @@ def save_data(sheet=None):
             else:
                 data_to_save[key] = value
         
-        # Save to file
+        # Save to file with proper temp file handling
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2, cls=DateEncoder)
         
         os.replace(temp_file, DATA_FILE)
         
-        # Save reimbursement data separately (keeping your existing functionality)
+        # Save reimbursement data separately
         save_reimbursement_data()
         
         # Enhanced Google Sheets integration
@@ -1121,8 +1121,8 @@ def save_data(sheet=None):
                         if isinstance(st.session_state[data_key], pd.DataFrame) and not st.session_state[data_key].empty:
                             # Check for required columns before syncing
                             required_columns = {
-                                "credit_data": ["Name"],  # Ensure Name column exists for credit_data
-                                "attendance": ["Name", "Date"],  # Example other required columns
+                                "credit_data": ["Name"],
+                                "attendance": ["Name", "Date"],
                                 # Add other data types' required columns as needed
                             }
                             
@@ -3291,6 +3291,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
