@@ -116,8 +116,9 @@ st.markdown("""
 
 class DateEncoder(json.JSONEncoder):
     def default(self, obj):
-        # Check for date and datetime types using proper type references
-        if isinstance(obj, (date, datetime)):
+        # Only check against valid type objects
+        valid_date_types = (date, datetime)
+        if isinstance(obj, valid_date_types):
             return obj.isoformat()
         return super().default(obj)
 
@@ -1054,39 +1055,46 @@ def load_data(sheet):
         return False, f"Error loading data: {str(e)}"
 
 def save_data(sheet=None):
-    """Save application data to local storage and Google Sheets (with fixed type checking)"""
+    """Save application data with proper type checking"""
     try:
         if 'backup_data' in globals():
             backup_data()
         
         data_to_save = {}
+        excluded_keys = {"user", "role", "login_attempts", "spinning", "winner"}
         
         for key in st.session_state:
+            # Skip excluded keys
+            if key in excluded_keys:
+                continue
+                
+            value = st.session_state[key]
+            
             # Handle DataFrames
-            if isinstance(st.session_state[key], pd.DataFrame):
-                if st.session_state[key].empty:
+            if isinstance(value, pd.DataFrame):
+                if value.empty:
                     st.warning(f"Session state {key} is an empty DataFrame")
                     continue
                 
-                df = st.session_state[key].copy()
+                df = value.copy()
                 
-                # Fix: Explicitly check for datetime64 types
+                # Convert datetime columns - explicit type check
                 for col in df.columns:
-                    if pd.api.types.is_datetime64_dtype(df[col]) or pd.api.types.is_datetime64tz_dtype(df[col]):
+                    dtype = df[col].dtype
+                    if pd.api.types.is_datetime64_dtype(dtype) or pd.api.types.is_datetime64tz_dtype(dtype):
                         df[col] = df[col].dt.isoformat()
                 
                 data_to_save[key] = df.to_dict('records')
             
-            # Handle other data types
-            elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
-                value = st.session_state[key]
-                # Fix: Ensure we're checking against actual date/datetime classes
-                if isinstance(value, (date, datetime)):
-                    data_to_save[key] = value.isoformat()
-                else:
-                    data_to_save[key] = value
+            # Handle date/datetime objects - explicit type check
+            elif isinstance(value, (date, datetime)):
+                data_to_save[key] = value.isoformat()
+            
+            # Handle all other valid types
+            else:
+                data_to_save[key] = value
         
-        # Save with custom encoder
+        # Save to file with safe encoding
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2, cls=DateEncoder)
@@ -3283,6 +3291,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
