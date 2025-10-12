@@ -114,6 +114,25 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+class DateEncoder(json.JSONEncoder):
+    def default(self, obj):
+        # Convert date and datetime objects to ISO format strings
+        if isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        # Let the base class handle other types or raise an error
+        return super().default(obj)
+
+if 'occasional_events' not in st.session_state or st.session_state.occasional_events.empty:
+    st.session_state.occasional_events = pd.DataFrame(columns=['EventName', 'Date', 'Description', 'Cost'])  # Adjust columns as needed
+
+if 'credit_data' not in st.session_state or st.session_state.credit_data.empty:
+    st.session_state.credit_data = pd.DataFrame(columns=['Name', 'Date', 'Credits', 'Reason'])  # Adjust columns as needed
+
+if 'scheduled_events' not in st.session_state or st.session_state.scheduled_events.empty:
+    st.session_state.scheduled_events = pd.DataFrame(columns=['EventName', 'Date', 'Location', 'Organizer'])  # Adjust columns as needed
+
+if 'money_data' not in st.session_state or st.session_state.money_data.empty:
+    st.session_state.money_data = pd.DataFrame(columns=['Date', 'Amount', 'Category', 'Description'])  # Adjust columns as needed
 # ------------------------------
 # Google Sheets Integration
 # ------------------------------
@@ -1036,33 +1055,49 @@ def load_data(sheet):
         return False, f"Error loading data: {str(e)}"
 
 def save_data(sheet=None):
-    """Save application data to local storage and Google Sheets (if available)"""
+    """Save application data to local storage and Google Sheets (with date handling)"""
     try:
-        backup_data()  # Keep your existing backup function
+        # Call your existing backup function if it exists
+        if 'backup_data' in globals():
+            backup_data()
+        
         data_to_save = {}
         
-        # Convert DataFrames to dictionaries for local storage
+        # Process each item in session state
         for key in st.session_state:
-            # Validate DataFrames before processing
+            # Handle DataFrames
             if isinstance(st.session_state[key], pd.DataFrame):
-                # Check if DataFrame is empty
                 if st.session_state[key].empty:
                     st.warning(f"Session state {key} is an empty DataFrame")
                     continue
-                # Convert to dict only if valid
-                data_to_save[key] = st.session_state[key].to_dict('records')
-            elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
-                data_to_save[key] = st.session_state[key]
                 
-        # Safe local file writing (preserving your original approach)
-        temp_file = f"{DATA_FILE}.tmp"
-        with open(temp_file, "w") as f:
-            json.dump(data_to_save, f, indent=2)
-        os.replace(temp_file, DATA_FILE)
+                # Make a copy to avoid modifying original data
+                df = st.session_state[key].copy()
+                
+                # Convert any datetime columns to ISO strings
+                for col in df.columns:
+                    if pd.api.types.is_datetime64_any_dtype(df[col]):
+                        df[col] = df[col].dt.isoformat()
+                
+                # Add to data to save
+                data_to_save[key] = df.to_dict('records')
+            
+            # Handle other data types (skip excluded keys)
+            elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
+                value = st.session_state[key]
+                # Convert standalone date/datetime objects
+                if isinstance(value, (date, datetime)):
+                    data_to_save[key] = value.isoformat()
+                else:
+                    data_to_save[key] = value
         
-        # Clean up temp file if needed
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        # Save to JSON with our custom date encoder
+        temp_file = f"{DATA_FILE}.tmp"  # Assuming DATA_FILE is defined elsewhere in your code
+        with open(temp_file, "w") as f:
+            json.dump(data_to_save, f, indent=2, cls=DateEncoder)
+        
+        # Replace the old file with the new one
+        os.replace(temp_file, DATA_FILE)
         
         # Save reimbursement data separately (keeping your existing functionality)
         save_reimbursement_data()
@@ -3254,6 +3289,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
