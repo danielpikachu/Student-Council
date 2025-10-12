@@ -18,6 +18,12 @@ import base64
 # ------------------------------
 # Configuration and Constants
 # ------------------------------
+st.set_page_config(
+    page_title="SCIS HQ US Stuco",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 WELCOME_MESSAGE = "Welcome to SCIS Student Council Management System"
 CREATOR_ROLE = "creator"  # Special role with full access
 ROLES = ["admin", "credit_manager", "user"]
@@ -3248,6 +3254,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
