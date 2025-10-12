@@ -127,17 +127,6 @@ class DateEncoder(json.JSONEncoder):
             return obj.isoformat()
         return super().default(obj)
 
-if 'occasional_events' not in st.session_state or st.session_state.occasional_events.empty:
-    st.session_state.occasional_events = pd.DataFrame(columns=['EventName', 'Date', 'Description', 'Cost'])  # Adjust columns as needed
-
-if 'credit_data' not in st.session_state or st.session_state.credit_data.empty:
-    st.session_state.credit_data = pd.DataFrame(columns=['Name', 'Date', 'Credits', 'Reason'])  # Adjust columns as needed
-
-if 'scheduled_events' not in st.session_state or st.session_state.scheduled_events.empty:
-    st.session_state.scheduled_events = pd.DataFrame(columns=['EventName', 'Date', 'Location', 'Organizer'])  # Adjust columns as needed
-
-if 'money_data' not in st.session_state or st.session_state.money_data.empty:
-    st.session_state.money_data = pd.DataFrame(columns=['Date', 'Amount', 'Category', 'Description'])  # Adjust columns as needed
 # ------------------------------
 # Google Sheets Integration
 # ------------------------------
@@ -3286,6 +3275,18 @@ def render_main_app():
             group_diagnostics()
             show_group_codes()
 
+
+if 'occasional_events' not in st.session_state or st.session_state.occasional_events.empty:
+    st.session_state.occasional_events = pd.DataFrame(columns=['EventName', 'Date', 'Description', 'Cost'])  # Adjust columns as needed
+
+if 'credit_data' not in st.session_state or st.session_state.credit_data.empty:
+    st.session_state.credit_data = pd.DataFrame(columns=['Name', 'Date', 'Credits', 'Reason'])  # Adjust columns as needed
+
+if 'scheduled_events' not in st.session_state or st.session_state.scheduled_events.empty:
+    st.session_state.scheduled_events = pd.DataFrame(columns=['EventName', 'Date', 'Location', 'Organizer'])  # Adjust columns as needed
+
+if 'money_data' not in st.session_state or st.session_state.money_data.empty:
+    st.session_state.money_data = pd.DataFrame(columns=['Date', 'Amount', 'Category', 'Description'])  # Adjust columns as needed
 # ------------------------------
 # Main Application Flow
 # ------------------------------
@@ -3320,6 +3321,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
