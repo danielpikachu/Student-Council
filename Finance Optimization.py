@@ -117,7 +117,11 @@ st.markdown("""
 
 class DateEncoder(json.JSONEncoder):
     def default(self, obj):
-        # Explicitly define valid date types as a tuple of classes
+        # First convert any numpy types
+        obj = convert_numpy_types(obj)
+        
+        # Then handle date/datetime types
+        from datetime import date, datetime
         valid_types = (date, datetime)
         if isinstance(obj, valid_types):
             return obj.isoformat()
@@ -1771,6 +1775,20 @@ def is_user():
 # ------------------------------
 # UI Helper Functions
 # ------------------------------
+def convert_numpy_types(obj):
+    """Convert numpy types to native Python types for JSON serialization"""
+    import numpy as np
+    
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()  # Convert arrays to lists
+    elif isinstance(obj, np.integer):
+        return int(obj)      # Convert numpy integers to Python int
+    elif isinstance(obj, np.floating):
+        return float(obj)    # Convert numpy floats to Python float
+    elif isinstance(obj, np.bool_):
+        return bool(obj)     # Convert numpy booleans to Python bool
+    return obj
+
 def group_diagnostics():
     """Debug tool to verify group system status"""
     if is_creator():  # Use your existing admin check function
@@ -3292,6 +3310,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
