@@ -1882,7 +1882,7 @@ def render_calendar():
     
     with col_title:
         # Display current month and year
-        st.subheader(f"{datetime.datetime(current_year, current_month, 1).strftime('%B %Y')}")
+        st.subheader(f"{datetime(current_year, current_month, 1).strftime('%B %Y')}")
     
     with col_next:
         if st.button("Next ▶", key="next_month"):
@@ -3292,6 +3292,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
