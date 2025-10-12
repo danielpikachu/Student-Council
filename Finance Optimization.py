@@ -3275,6 +3275,15 @@ def render_main_app():
             group_diagnostics()
             show_group_codes()
 
+if 'attendance' not in st.session_state:
+    # Include "Date" as a column (with appropriate datetime values)
+    st.session_state.attendance = pd.DataFrame(
+        columns=["Name", "Date", "Status"],  # "Date" is required
+        data=[
+            # Example row
+            ["John Doe", datetime.now().date(), "Present"]
+        ]
+    )
 
 if 'occasional_events' not in st.session_state or st.session_state.occasional_events.empty:
     st.session_state.occasional_events = pd.DataFrame(columns=['EventName', 'Date', 'Description', 'Cost'])  # Adjust columns as needed
@@ -3321,6 +3330,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
