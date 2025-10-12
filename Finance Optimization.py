@@ -116,10 +116,9 @@ st.markdown("""
 
 class DateEncoder(json.JSONEncoder):
     def default(self, obj):
-        # Convert date and datetime objects to ISO format strings
+        # Check for date and datetime types using proper type references
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
-        # Let the base class handle other types or raise an error
         return super().default(obj)
 
 if 'occasional_events' not in st.session_state or st.session_state.occasional_events.empty:
@@ -1055,15 +1054,13 @@ def load_data(sheet):
         return False, f"Error loading data: {str(e)}"
 
 def save_data(sheet=None):
-    """Save application data to local storage and Google Sheets (with date handling)"""
+    """Save application data to local storage and Google Sheets (with fixed type checking)"""
     try:
-        # Call your existing backup function if it exists
         if 'backup_data' in globals():
             backup_data()
         
         data_to_save = {}
         
-        # Process each item in session state
         for key in st.session_state:
             # Handle DataFrames
             if isinstance(st.session_state[key], pd.DataFrame):
@@ -1071,32 +1068,29 @@ def save_data(sheet=None):
                     st.warning(f"Session state {key} is an empty DataFrame")
                     continue
                 
-                # Make a copy to avoid modifying original data
                 df = st.session_state[key].copy()
                 
-                # Convert any datetime columns to ISO strings
+                # Fix: Explicitly check for datetime64 types
                 for col in df.columns:
-                    if pd.api.types.is_datetime64_any_dtype(df[col]):
+                    if pd.api.types.is_datetime64_dtype(df[col]) or pd.api.types.is_datetime64tz_dtype(df[col]):
                         df[col] = df[col].dt.isoformat()
                 
-                # Add to data to save
                 data_to_save[key] = df.to_dict('records')
             
-            # Handle other data types (skip excluded keys)
+            # Handle other data types
             elif key not in ["user", "role", "login_attempts", "spinning", "winner"]:
                 value = st.session_state[key]
-                # Convert standalone date/datetime objects
+                # Fix: Ensure we're checking against actual date/datetime classes
                 if isinstance(value, (date, datetime)):
                     data_to_save[key] = value.isoformat()
                 else:
                     data_to_save[key] = value
         
-        # Save to JSON with our custom date encoder
-        temp_file = f"{DATA_FILE}.tmp"  # Assuming DATA_FILE is defined elsewhere in your code
+        # Save with custom encoder
+        temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2, cls=DateEncoder)
         
-        # Replace the old file with the new one
         os.replace(temp_file, DATA_FILE)
         
         # Save reimbursement data separately (keeping your existing functionality)
@@ -3289,6 +3283,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
