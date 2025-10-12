@@ -684,7 +684,7 @@ def save_reimbursement_data():
 def submit_reimbursement_request(group, amount, description, file_data, submitted_by):
     """Submit a new reimbursement request"""
     # Generate unique ID
-    request_id = f"REQ-{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}-{np.random.randint(100, 999)}"
+    request_id = f"REQ-{datetime.now().strftime('%Y%m%d%H%M%S')}-{np.random.randint(100, 999)}"
     
     new_request = {
         "id": request_id,
@@ -694,7 +694,7 @@ def submit_reimbursement_request(group, amount, description, file_data, submitte
         "status": "pending",  # pending, approved, rejected
         "file": file_data,  # Base64 encoded file data
         "submitted_by": submitted_by,
-        "submitted_at": datetime.datetime.now().isoformat()
+        "submitted_at": datetime.now().isoformat()
     }
     
     st.session_state.reimbursements["requests"].append(new_request)
@@ -911,7 +911,7 @@ def register_user(username, password, role="user", group_name=None):
     user_data = {
         "password_hash": hashed_pw,
         "role": role,
-        "created_at": datetime.datetime.now().isoformat(),
+        "created_at": datetime.now().isoformat(),
         "last_login": None
     }
     
@@ -935,7 +935,7 @@ def update_user_login(username):
     try:
         users = load_users()
         if username in users:
-            users[username]["last_login"] = datetime.datetime.now().isoformat()
+            users[username]["last_login"] = datetime.now().isoformat()
             temp_file = f"{USERS_FILE}.tmp"
             with open(temp_file, "w") as f:
                 json.dump(users, f, indent=2)
@@ -1372,7 +1372,7 @@ def group_management_ui():
                     st.write(f"**Amount:** ${req['amount']:.2f}")
                     st.write(f"**Description:** {req['description']}")
                     st.write(f"**Submitted by:** {req['submitted_by']}")
-                    st.write(f"**Submitted on:** {datetime.datetime.fromisoformat(req['submitted_at']).strftime('%Y-%m-%d %H:%M')}")
+                    st.write(f"**Submitted on:** {datetime.fromisoformat(req['submitted_at']).strftime('%Y-%m-%d %H:%M')}")
                     
                     # Show file if available
                     if req.get("file"):
@@ -2348,8 +2348,8 @@ def render_main_app():
                         "Username": username,
                         "Role": user["role"].capitalize(),
                         "Group": user.get("group", "N/A"),  # Show user's group
-                        "Created": datetime.datetime.fromisoformat(user["created_at"]).strftime("%Y-%m-%d"),
-                        "Last Login": datetime.datetime.fromisoformat(user["last_login"]).strftime("%Y-%m-%d") 
+                        "Created": datetime.fromisoformat(user["created_at"]).strftime("%Y-%m-%d"),
+                        "Last Login": datetime.fromisoformat(user["last_login"]).strftime("%Y-%m-%d") 
                                       if user["last_login"] else "Never"
                     }
                     for username, user in users.items()
@@ -2502,7 +2502,7 @@ def render_main_app():
                 with col_content:
                     # Display with title
                     st.info(f"**{ann['title']}**\n\n"
-                            f"*{datetime.datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}*\n\n"
+                            f"*{datetime.fromisoformat(ann['time']).strftime('%b %d, %Y - %H:%M')}*\n\n"
                             f"{ann['text']}")
                 with col_actions:
                     if is_admin():
@@ -2539,7 +2539,7 @@ def render_main_app():
                         st.session_state.announcements.append({
                             "title": ann_title,
                             "text": new_announcement,
-                            "time": datetime.datetime.now().isoformat(),
+                            "time": datetime.now().isoformat(),
                             "author": st.session_state.user
                         })
                         success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
@@ -3329,6 +3329,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
