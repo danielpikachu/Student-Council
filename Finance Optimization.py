@@ -116,9 +116,9 @@ st.markdown("""
 
 class DateEncoder(json.JSONEncoder):
     def default(self, obj):
-        # Only check against valid type objects
-        valid_date_types = (date, datetime)
-        if isinstance(obj, valid_date_types):
+        # Explicitly define valid date types as a tuple of classes
+        valid_types = (date, datetime)
+        if isinstance(obj, valid_types):
             return obj.isoformat()
         return super().default(obj)
 
@@ -1055,7 +1055,6 @@ def load_data(sheet):
         return False, f"Error loading data: {str(e)}"
 
 def save_data(sheet=None):
-    """Save application data with proper type checking"""
     try:
         if 'backup_data' in globals():
             backup_data()
@@ -1064,37 +1063,34 @@ def save_data(sheet=None):
         excluded_keys = {"user", "role", "login_attempts", "spinning", "winner"}
         
         for key in st.session_state:
-            # Skip excluded keys
             if key in excluded_keys:
                 continue
                 
             value = st.session_state[key]
             
-            # Handle DataFrames
+            # 1. Check for DataFrames - using pd.DataFrame type directly
             if isinstance(value, pd.DataFrame):
                 if value.empty:
                     st.warning(f"Session state {key} is an empty DataFrame")
                     continue
                 
                 df = value.copy()
-                
-                # Convert datetime columns - explicit type check
+                # Check for datetime columns using pandas' type checking
                 for col in df.columns:
-                    dtype = df[col].dtype
-                    if pd.api.types.is_datetime64_dtype(dtype) or pd.api.types.is_datetime64tz_dtype(dtype):
+                    if pd.api.types.is_datetime64_any_dtype(df[col]):
                         df[col] = df[col].dt.isoformat()
                 
                 data_to_save[key] = df.to_dict('records')
             
-            # Handle date/datetime objects - explicit type check
+            # 2. Check for date/datetime objects - using the actual classes
             elif isinstance(value, (date, datetime)):
                 data_to_save[key] = value.isoformat()
             
-            # Handle all other valid types
+            # 3. Handle all other valid types
             else:
                 data_to_save[key] = value
         
-        # Save to file with safe encoding
+        # Save to file
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2, cls=DateEncoder)
@@ -3295,6 +3291,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
