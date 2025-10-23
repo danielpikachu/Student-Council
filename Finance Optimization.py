@@ -226,6 +226,8 @@ def initialize_session_state():
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
+    if "group_earnings" not in st.session_state:
+        st.session_state.group_earnings = {f"G{i}": [] for i in range(1,9)}
     
     # Define all required state variables with defaults
     required_states = {
@@ -585,7 +587,7 @@ def get_group_from_code(code):
 # Group Data Management
 # ------------------------------
 def load_groups_data():
-    """Load group data with backup recovery"""
+    """Load group data with backup recovery (including earnings)"""
     try:
         if os.path.exists(GROUPS_FILE):
             with open(GROUPS_FILE, "r") as f:
@@ -596,6 +598,7 @@ def load_groups_data():
             st.session_state.group_members = group_data.get("group_members", {})
             st.session_state.group_meetings = group_data.get("group_meetings", {})
             st.session_state.group_descriptions = group_data.get("group_descriptions", {})
+            st.session_state.group_earnings = group_data.get("group_earnings", {})  # New: Load earnings
             return True, "Group data loaded successfully"
         
         # Recover from backup if groups file is missing
@@ -627,23 +630,21 @@ def load_groups_data():
         return False, f"Error loading group data: {str(e)}"
 
 def save_groups_data():
-    """Save group data safely"""
+    """Save group data safely (including earnings)"""
     try:
         backup_data()  # Backup before saving changes
         group_data = {
             "groups": st.session_state.groups,
             "group_members": st.session_state.group_members,
             "group_meetings": st.session_state.group_meetings,
-            "group_descriptions": st.session_state.group_descriptions
+            "group_descriptions": st.session_state.group_descriptions,
+            "group_earnings": st.session_state.group_earnings  # New: Save earnings
         }
         
         temp_file = f"{GROUPS_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(group_data, f, indent=2)
         os.replace(temp_file, GROUPS_FILE)
-        # Clean up temp file if needed
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
         return True, "Group data saved successfully"
     except Exception as e:
         return False, f"Error saving group data: {str(e)}"
@@ -1255,19 +1256,19 @@ def sync_user_to_sheets(sheet, username):
         ]
     ])
 
-
 def sync_group_members_to_sheets(sheet, group_name):
-    """Sync group members to their group's worksheet"""
-    # Get or create group worksheet (or update main Groups sheet)
+    """Sync group members AND earnings to Google Sheets"""
     try:
         ws = sheet.worksheet("Groups")
     except:
-        ws = sheet.add_worksheet(title="Groups", rows="100", cols="3")
-        ws.append_row(["Group Name", "Members", "Last Updated"])
+        ws = sheet.add_worksheet(title="Groups", rows="100", cols="5")
+        ws.append_row(["Group Name", "Members", "Total Earnings", "Last Updated", "Earnings Count"])
     
-    # Get members for the group
+    # Get members and earnings for the group
     members = st.session_state.group_members.get(group_name, [])
-    members_str = ", ".join(members)  # Convert list to string
+    members_str = ", ".join(members)
+    earnings = st.session_state.group_earnings.get(group_name, [])
+    total_earned = sum(item["amount"] for item in earnings) if earnings else 0
     
     # Find group row
     group_rows = ws.findall(group_name)
@@ -1276,9 +1277,9 @@ def sync_group_members_to_sheets(sheet, group_name):
     else:
         row = len(ws.get_all_values()) + 1
     
-    # Update group data
-    ws.update(f"A{row}:C{row}", [
-        [group_name, members_str, datetime.now().isoformat()]
+    # Update group data with earnings
+    ws.update(f"A{row}:E{row}", [
+        [group_name, members_str, f"${total_earned:.2f}", datetime.now().isoformat(), len(earnings)]
     ])
 
 # ------------------------------
@@ -1430,7 +1431,56 @@ def group_management_ui():
                             )
                         else:
                             st.error(msg)
-            
+
+                st.subheader("💰 Group Earnings")
+                
+                # Display earnings history
+                earnings = st.session_state.group_earnings.get(group, [])
+                if earnings:
+                    # Convert to DataFrame for clean display
+                    earnings_df = pd.DataFrame(earnings)
+                    earnings_df["date"] = pd.to_datetime(earnings_df["date"]).dt.strftime("%Y-%m-%d")
+                    st.dataframe(earnings_df, use_container_width=True)
+                    
+                    # Show total earnings
+                    total_earned = sum(item["amount"] for item in earnings)
+                    st.metric(f"Total Earnings for {group}", f"${total_earned:.2f}")
+                else:
+                    st.info(f"No earnings recorded for {group} yet.")
+                
+                # Add new earnings entry (admin or group members can add)
+                with st.expander("Add New Earnings Entry", expanded=False):
+                    col_date, col_amount = st.columns(2)
+                    with col_date:
+                        earn_date = st.date_input("Date", date.today())
+                    with col_amount:
+                        earn_amount = st.number_input("Amount ($)", min_value=0.01, step=10.0, format="%.2f")
+                    
+                    earn_desc = st.text_input("Description (e.g., Bake Sale, Fundraiser)")
+                    
+                    if st.button("Record Earnings", key=f"earn_btn_{group}"):
+                        if earn_amount <= 0:
+                            st.error("Amount must be greater than $0")
+                        elif not earn_desc.strip():
+                            st.error("Please add a description")
+                        else:
+                            # Add to group earnings
+                            new_entry = {
+                                "date": earn_date.isoformat(),
+                                "amount": float(earn_amount),
+                                "description": earn_desc.strip(),
+                                "recorded_by": st.session_state.user
+                            }
+                            st.session_state.group_earnings[group].append(new_entry)
+                            
+                            # Save changes
+                            success, msg = save_groups_data()
+                            if success:
+                                st.success(f"Recorded ${earn_amount:.2f} for {group}")
+                                st.rerun()
+                            else:
+                                st.error(msg)
+
             # Show meetings if any exist
             if st.session_state.group_meetings.get(group, []):
                 with st.expander(f"Past Meetings for {group}"):
@@ -3485,5 +3535,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
