@@ -898,29 +898,7 @@ def authenticate(username, password):
         return False, "Incorrect password"
     return False, "User not found"
 
-def register_user(username, password, role="user", group_name=None):
-    """Register new user with group association"""
-    if role not in ROLES:
-        return False, "Invalid role"
-        
-    users = load_users()
-    if username in users:
-        return False, "Username already exists"
-        
-    hashed_pw = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    user_data = {
-        "password_hash": hashed_pw,
-        "role": role,
-        "created_at": datetime.now().isoformat(),
-        "last_login": None
-    }
-    
-    # Add group information if provided
-    if group_name:
-        user_data["group"] = group_name
-        
-    users[username] = user_data
-    return save_users(users), "User registered successfully"
+
 
 def hash_password(password):
     """Hash a password for secure storage"""
@@ -1161,11 +1139,75 @@ def save_data(sheet=None):
                     except Exception as e:
                         st.warning(f"Could not sync {data_key} to Google Sheets: {str(e)}")
                         continue  # Continue with other data types even if one fails
-        
+
+        if sheet:
+            success, msg = sync_users_to_sheets(sheet)
+            if not success:
+                st.warning(f"User sync warning: {msg}")
+                
         return True, "Data saved successfully (local storage and Google Sheets where available)"
-        
     except Exception as e:
         return False, f"Error saving data: {str(e)}"
+
+def sync_user_to_sheets(sheet, username):
+    """Sync a single user to Google Sheets 'Users' worksheet"""
+    user = st.session_state.users[username]
+    
+    # Get or create Users worksheet
+    try:
+        ws = sheet.worksheet("Users")
+    except:
+        ws = sheet.add_worksheet(title="Users", rows="1000", cols="6")
+        # Add headers if new worksheet
+        ws.append_row(["Username", "Password Hash", "Role", "Group", "Registered At", "Last Login"])
+    
+    # Check if user already exists in sheet (to avoid duplicates)
+    existing_rows = ws.findall(username)
+    if existing_rows:
+        # Update existing row
+        row = existing_rows[0].row
+    else:
+        # Add new row
+        row = len(ws.get_all_values()) + 1
+    
+    # Update row with user data
+    ws.update(f"A{row}:F{row}", [
+        [
+            username,
+            user["password"],  # Hashed password
+            user["role"],
+            user["group"],
+            user["registered_at"],
+            user.get("last_login", "")
+        ]
+    ])
+
+
+def sync_group_members_to_sheets(sheet, group_name):
+    """Sync group members to their group's worksheet"""
+    # Get or create group worksheet (or update main Groups sheet)
+    try:
+        ws = sheet.worksheet("Groups")
+    except:
+        ws = sheet.add_worksheet(title="Groups", rows="100", cols="3")
+        ws.append_row(["Group Name", "Members", "Last Updated"])
+    
+    # Get members for the group
+    members = st.session_state.group_members.get(group_name, [])
+    members_str = ", ".join(members)  # Convert list to string
+    
+    # Find group row
+    group_rows = ws.findall(group_name)
+    if group_rows:
+        row = group_rows[0].row
+    else:
+        row = len(ws.get_all_values()) + 1
+    
+    # Update group data
+    ws.update(f"A{row}:C{row}", [
+        [group_name, members_str, datetime.now().isoformat()]
+    ])
+
 # ------------------------------
 # UI Components
 # ------------------------------
@@ -1732,7 +1774,7 @@ def render_login_form():
         return False
 
 def render_signup_form():
-    """Render signup form with group code verification"""
+    """Render signup form with group code verification and Google Sheets sync"""
     config = load_config()
     if not config.get("show_signup", False):
         return
@@ -1766,12 +1808,33 @@ def render_signup_form():
                 st.error("Passwords do not match")
                 return
             
-            # Create user with group association
-            success, msg = register_user(new_username, new_password, group_name=group_name)
+            # Get Google Sheet client (ensure this is defined in your code)
+            # This assumes you have a function to get a valid gspread client
+            sheet = get_google_sheet_client()  # Add this function to your code
+            
+            # Create user with group association and hash password
+            success, msg = register_user(
+                username=new_username,
+                password=new_password,
+                group_name=group_name,
+                sheet=sheet  # Pass sheet client for immediate sync
+            )
+            
             if success:
-                # Add user to their group
+                # Add user to their group and sync group data
                 add_group_member(group_name, new_username)
-                st.success(f"{msg} You've been added to {group_name}!")
+                
+                # Explicitly sync group members to Google Sheets
+                if sheet:
+                    try:
+                        sync_group_members_to_sheets(sheet, group_name)
+                        st.success(f"{msg} You've been added to {group_name}! (Synced to Google Sheets)")
+                    except Exception as e:
+                        st.success(f"{msg} You've been added to {group_name}! (Local save successful, Sheets sync pending)")
+                else:
+                    st.success(f"{msg} You've been added to {group_name}! (Local save only)")
+                
+                st.rerun()  # Refresh to reflect new user
             else:
                 st.error(msg)
 
@@ -3349,33 +3412,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
