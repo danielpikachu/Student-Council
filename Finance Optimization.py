@@ -2192,31 +2192,26 @@ def get_month_grid(year, month):
     
 def calculate_attendance_rates():
         """Safely calculate attendance rates with error handling for missing meetings"""
-        try:
-            # Get valid meeting names that actually exist in the attendance DataFrame
-            valid_meetings = [
-                meeting for meeting in st.session_state.meeting_names 
-                if meeting in st.session_state.attendance.columns
-            ]
-            
-            # If no valid meetings, return empty dict to avoid errors
-            if not valid_meetings:
-                return {}
-            
-            # Calculate rates using only valid meetings
-            attendance_rates = {}
-            for _, row in st.session_state.attendance.iterrows():
-                name = row['Name']
-                attended = sum(row[meeting] for meeting in valid_meetings if pd.notna(row[meeting]))
-                total = len(valid_meetings)
-                attendance_rates[name] = (attended / total) * 100 if total > 0 else 0
-            
-            return attendance_rates
-        except Exception as e:
-            # If any error occurs, return empty dict to prevent app crash
-            st.warning(f"Attendance calculation temporarily disabled: {str(e)}")
+    try:
+        # Get all valid meeting columns (anything except 'Name')
+        valid_meetings = [col for col in st.session_state.attendance.columns 
+                         if col != 'Name' and st.session_state.attendance[col].dtype == bool]
+        
+        if not valid_meetings:
             return {}
-
+        
+        attendance_rates = {}
+        for _, row in st.session_state.attendance.iterrows():
+            name = row['Name']
+            attended = sum(row[meeting] for meeting in valid_meetings)
+            total = len(valid_meetings)
+            attendance_rates[name] = (attended / total) * 100 if total > 0 else 0
+        
+        return attendance_rates
+    except Exception as e:
+        st.warning(f"Attendance calculation error: {str(e)}")
+        return {}
+        
 def reset_attendance_data():
         """Reset attendance data to fix corruption"""
         backup_data()  # Save backup before resetting
@@ -2381,6 +2376,7 @@ def mark_all_present(meeting_name):
         return True, f"All students marked as present for {meeting_name}"
     else:
         return False, f"Failed to save changes: {msg}"
+
 
 # ------------------------------
 # Excel Import Function for Credit and Reward System (Only for Credit)
@@ -2982,39 +2978,36 @@ def render_main_app():
     with tab4:
         st.subheader("Meeting Attendance Tracking")
         
-        # Display attendance data
-        if st.session_state.attendance.empty:
-            st.info("No attendance data available. Please add members and meetings.")
-        else:
-            # Show attendance rates (only if there are meetings)
-            attendance_rates = calculate_attendance_rates()
-            if attendance_rates:
-                st.subheader("Attendance Rates")
-                rate_df = pd.DataFrame(list(attendance_rates.items()), columns=['Name', 'Attendance Rate (%)'])
-                rate_df = rate_df.sort_values('Attendance Rate (%)', ascending=False)
-                st.dataframe(rate_df.style.format({'Attendance Rate (%)': '{:.1f}%'}), use_container_width=True)
-                
-                # Visualization
-                fig, ax = plt.subplots(figsize=(10, 6))
-                top_bottom = pd.concat([rate_df.head(5), rate_df.tail(5)])
-                ax.bar(top_bottom['Name'], top_bottom['Attendance Rate (%)'], color='skyblue')
-                ax.set_ylim(0, 100)
-                ax.set_title('Top and Bottom 5 Attendance Rates')
-                plt.xticks(rotation=45, ha='right')
-                st.pyplot(fig)
-        
-        # Show main attendance table
+        # Ensure attendance DataFrame has proper boolean columns
+        if not st.session_state.attendance.empty:
+            # Convert all meeting columns to boolean
+            for col in st.session_state.attendance.columns:
+                if col != 'Name':  # Don't convert the Name column
+                    try:
+                        # Fix: Convert True/False strings to actual booleans
+                        if st.session_state.attendance[col].dtype == 'object':
+                            st.session_state.attendance[col] = st.session_state.attendance[col].map(
+                                lambda x: True if str(x).lower() == 'true' else False
+                            )
+                        # Ensure proper boolean type
+                        st.session_state.attendance[col] = st.session_state.attendance[col].astype(bool)
+                    except Exception as e:
+                        st.warning(f"Fixed column {col}: {str(e)}")
+    
+        # Show main attendance table with editable checkboxes
         st.subheader("Meeting Attendance Records")
         edited_attendance = st.data_editor(
             st.session_state.attendance,
             use_container_width=True,
-            disabled=not is_admin(),  # Only admins can edit
+            disabled=not is_admin(),
             column_config={
                 "Name": st.column_config.TextColumn("Member Name", disabled=True)
-            }
+            },
+            # Critical fix: Force all meeting columns to be checkboxes
+            num_rows="dynamic"
         )
         
-        # Save changes if edited
+        # Save changes when edited
         if is_admin() and not edited_attendance.equals(st.session_state.attendance):
             st.session_state.attendance = edited_attendance
             success, msg = save_data(connect_gsheets())
@@ -3023,8 +3016,36 @@ def render_main_app():
             else:
                 st.error(msg)
         
-        # Admin tools
+        # Display attendance rates (fixed to include all meetings)
+        attendance_rates = calculate_attendance_rates()
+        if attendance_rates:
+            st.subheader("Attendance Rates")
+            # Convert to DataFrame for display
+            rates_df = pd.DataFrame(list(attendance_rates.items()), 
+                                  columns=['Name', 'Attendance Rate (%)'])
+            rates_df['Attendance Rate (%)'] = rates_df['Attendance Rate (%)'].round(1)
+            st.dataframe(rates_df.sort_values('Attendance Rate (%)', ascending=False), 
+                        use_container_width=True)
+            
+            # Add visualization
+            st.subheader("Attendance Distribution")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(rates_df['Attendance Rate (%)'], bins=10, color='skyblue', edgecolor='black')
+            ax.set_xlabel('Attendance Rate (%)')
+            ax.set_ylabel('Number of Students')
+            ax.set_title('Distribution of Attendance Rates')
+            st.pyplot(fig)
+        else:
+            if not st.session_state.attendance.empty and len(st.session_state.attendance.columns) > 1:
+                st.info("No attendance data to display. Mark attendance for meetings first.")
+            else:
+                st.info("Add some meetings and members to track attendance.")
+    
+        # Keep the existing admin tools but add this fix for meeting names:
         if is_admin():
+            # Fix: Update meeting_names from actual columns
+            st.session_state.meeting_names = [col for col in st.session_state.attendance.columns 
+                                            if col != 'Name']
             st.divider()
             st.subheader("Attendance Management Tools")
             
@@ -3556,6 +3577,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
