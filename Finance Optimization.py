@@ -3205,7 +3205,7 @@ def render_main_app():
             st.subheader("Credit Management Tools")
             
             # Add credits to student
-            col_add1, col_add2, col_add3 = st.columns(3)
+            col_add1, col_add2, col_add3, col_add4 = st.columns(4)
             
             # Validate credit_data and 'Name' column before using
             if 'credit_data' in st.session_state and isinstance(st.session_state.credit_data, pd.DataFrame):
@@ -3589,6 +3589,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
