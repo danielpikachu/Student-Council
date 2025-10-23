@@ -1464,7 +1464,11 @@ def group_management_ui():
                         elif not earn_desc.strip():
                             st.error("Please add a description")
                         else:
-                            # Add to group earnings
+                            # Safety check: Ensure group exists in group_earnings
+                            if group not in st.session_state.group_earnings:
+                                st.session_state.group_earnings[group] = []  # Initialize if missing
+                            
+                            # Add new entry
                             new_entry = {
                                 "date": earn_date.isoformat(),
                                 "amount": float(earn_amount),
@@ -3535,6 +3539,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
