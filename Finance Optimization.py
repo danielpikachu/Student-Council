@@ -253,9 +253,9 @@ def initialize_session_state():
             'RedeemedCredits': [50, 0, 50, 0, 50]
         }),
         "reward_data": pd.DataFrame({
-            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon', 'Movie Ticket'],
-            'Cost': [50, 30, 80, 120],
-            'Stock': [10, 20, 5, 3]
+            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+            'Cost': [50, 30, 80],
+            'Stock': [10, 20, 5]
         }),
         "wheel_prizes": [
             "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
@@ -1831,9 +1831,9 @@ def safe_init_data():
     })
 
     st.session_state.reward_data = pd.DataFrame({
-        'Reward': ['Bubble Tea', 'Chips', 'Café Coupon', 'Movie Ticket'],
-        'Cost': [50, 30, 80, 120],
-        'Stock': [10, 20, 5, 3]
+        'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+        'Cost': [50, 30, 80,],
+        'Stock': [10, 20, 5]
     })
 
     st.session_state.wheel_prizes = [
@@ -3230,7 +3230,7 @@ def render_main_app():
             with col_add2:
                 credit_amount = st.number_input(
                     "Credit Amount",
-                    min_value=10,
+                    min_value=1,
                     step=10,
                     key="credit_amount"
                 )
@@ -3241,6 +3241,18 @@ def render_main_app():
                     success, msg = save_data(connect_gsheets())
                     if success:
                         st.success(f"Added {credit_amount} credits to {student_to_credit}")
+                    else:
+                        st.error(msg)
+            with col_add4:
+                if st.button("Subtract Credits", key="subtract_credit_btn"):
+                    idx = st.session_state.credit_data[st.session_state.credit_data['Name'] == student_to_credit].index[0]
+                    current_credits = st.session_state.credit_data.at[idx, 'Total_Credits']
+                    # Calculate new credits with minimum 1
+                    new_credits = max(current_credits - credit_amount, 1)
+                    st.session_state.credit_data.at[idx, 'Total_Credits'] = new_credits
+                    success, msg = save_data(connect_gsheets())
+                    if success:
+                        st.success(f"Subtracted {credit_amount} credits from {student_to_credit}. New total: {new_credits}")
                     else:
                         st.error(msg)
             
@@ -3577,6 +3589,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
