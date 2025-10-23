@@ -1810,7 +1810,7 @@ def render_signup_form():
             
             # Get Google Sheet client (ensure this is defined in your code)
             # This assumes you have a function to get a valid gspread client
-            sheet = get_google_sheet_client()  # Add this function to your code
+            sheet = connect_gsheets()  # Add this function to your code
             
             # Create user with group association and hash password
             success, msg = register_user(
@@ -3412,3 +3412,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
