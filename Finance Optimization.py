@@ -1113,113 +1113,117 @@ def save_data(sheet=None):
                 continue
                 
             value = st.session_state[key]
-            # Convert numpy types first
             value = convert_numpy_types(value)
             
-            # 1. Check for DataFrames - using pd.DataFrame type directly
+            # Handle DataFrames
             if isinstance(value, pd.DataFrame):
                 if value.empty:
                     st.warning(f"Session state {key} is an empty DataFrame")
                     continue
                 
                 df = value.copy()
-                # Apply numpy conversion to all elements in DataFrame
                 df = df.applymap(convert_numpy_types)
                 
-                # Check for datetime columns using pandas' type checking
                 for col in df.columns:
                     if pd.api.types.is_datetime64_any_dtype(df[col]):
                         df[col] = df[col].dt.isoformat()
                 
                 data_to_save[key] = df.to_dict('records')
             
-            # 2. Check for date/datetime objects - using the actual classes
+            # Handle dates
             elif isinstance(value, (date, datetime)):
                 data_to_save[key] = value.isoformat()
             
-            # 3. Handle all other valid types
             else:
                 data_to_save[key] = value
         
-        # Save to file with proper temp file handling
+        # Save to local file
         temp_file = f"{DATA_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(data_to_save, f, indent=2, cls=DateEncoder)
-        
         os.replace(temp_file, DATA_FILE)
         
-        # Save reimbursement data separately
+        # Save reimbursements
         save_reimbursement_data()
         
-        # Enhanced Google Sheets integration
+        # Google Sheets sync
         if sheet:
-            # Create a list of data types to sync with their worksheet names
-            data_sync = [
-                ("attendance", "Attendance"),
-                ("occasional_events", "Events"),
-                ("money_data", "Finances"),
-                ("credit_data", "Credits"),
-                ("reward_data", "Rewards"),
-                ("users", "Users"),
-                ("reimbursements", "Reimbursements")
-            ]
-            
-            # Sync each data type if it exists in session state
-            for data_key, worksheet_name in data_sync:
-                if data_key in st.session_state:
+            # 1. Calendar Events Sync
+            try:
+                if "calendar_events" in st.session_state:
+                    # Get or create "Calendar" worksheet
                     try:
-                        # Get value and convert numpy types
-                        value = convert_numpy_types(st.session_state[data_key])
-                        
-                        # Handle DataFrames with validation
-                        if isinstance(value, pd.DataFrame) and not value.empty:
-                            # Apply numpy conversion to all elements
-                            df = value.applymap(convert_numpy_types)
-                            
-                            # Check for required columns before syncing
-                            required_columns = {
-                                "credit_data": ["Name"],
-                                # Add other data types' required columns as needed
-                            }
-                            
-                            # Validate required columns if defined for this data type
-                            if data_key in required_columns:
-                                missing = [col for col in required_columns[data_key] if col not in df.columns]
-                                if missing:
-                                    st.warning(f"Missing columns in {data_key}: {missing}. Skipping sync.")
-                                    continue
-                            
-                            ws = sheet.worksheet(worksheet_name)
-                            ws.clear()  # Clear existing data
-                            # Prepare data with headers
-                            data = [df.columns.tolist()] + df.values.tolist()
-                            ws.update(data)
-                            
-                        # Handle user dictionary
-                        elif data_key == "users" and value:
-                            ws = sheet.worksheet(worksheet_name)
-                            ws.clear()
-                            # Prepare user data with headers
-                            user_data = [["Username", "Password Hash", "Role", "Last Login"]]
-                            for user, details in value.items():
-                                user_data.append([
-                                    user,
-                                    details["password"],
-                                    details["role"],
-                                    details.get("last_login", "")
-                                ])
-                            ws.update(user_data)
-                            
-                    except Exception as e:
-                        st.warning(f"Could not sync {data_key} to Google Sheets: {str(e)}")
-                        continue  # Continue with other data types even if one fails
+                        cal_ws = sheet.worksheet("Calendar")
+                    except:
+                        cal_ws = sheet.add_worksheet(title="Calendar", rows="365", cols="3")
+                        cal_ws.append_row(["Date", "Event", "Last Updated"])
+                    
+                    # Clear existing data (keep header)
+                    if len(cal_ws.get_all_values()) > 1:
+                        cal_ws.delete_rows(2, len(cal_ws.get_all_values()))
+                    
+                    # Add new events
+                    events = st.session_state.calendar_events
+                    for date_str, event in events.items():
+                        if event.strip():  # Only save non-empty events
+                            cal_ws.append_row([
+                                date_str,
+                                event,
+                                datetime.now().isoformat()
+                            ])
+                    st.success("Calendar events synced to Google Sheets")
+            except Exception as e:
+                st.warning(f"Calendar sync failed: {str(e)}")
 
-        if sheet:
-            success, msg = sync_users_to_sheets(sheet)
-            if not success:
-                st.warning(f"User sync warning: {msg}")
-                
-        return True, "Data saved successfully (local storage and Google Sheets where available)"
+            # 2. Announcements Sync
+            try:
+                if "announcements" in st.session_state and st.session_state.announcements:
+                    # Get or create "Announcements" worksheet
+                    try:
+                        ann_ws = sheet.worksheet("Announcements")
+                    except:
+                        ann_ws = sheet.add_worksheet(title="Announcements", rows="100", cols="4")
+                        ann_ws.append_row(["Title", "Content", "Author", "Timestamp"])
+                    
+                    # Clear existing data (keep header)
+                    if len(ann_ws.get_all_values()) > 1:
+                        ann_ws.delete_rows(2, len(ann_ws.get_all_values()))
+                    
+                    # Add announcements
+                    for ann in st.session_state.announcements:
+                        ann_ws.append_row([
+                            ann.get("title", ""),
+                            ann.get("text", ""),
+                            ann.get("author", ""),
+                            ann.get("time", "")
+                        ])
+                    st.success("Announcements synced to Google Sheets")
+            except Exception as e:
+                st.warning(f"Announcements sync failed: {str(e)}")
+
+            # 3. Money Transfers Sync
+            try:
+                if "money_data" in st.session_state and not st.session_state.money_data.empty:
+                    # Get or create "MoneyTransfers" worksheet
+                    try:
+                        money_ws = sheet.worksheet("MoneyTransfers")
+                    except:
+                        money_ws = sheet.add_worksheet(title="MoneyTransfers", rows="1000", cols="4")
+                        money_ws.append_row(["Amount", "Description", "Date", "Handled By"])
+                    
+                    # Clear existing data (keep header)
+                    if len(money_ws.get_all_values()) > 1:
+                        money_ws.delete_rows(2, len(money_ws.get_all_values()))
+                    
+                    # Convert DataFrame to list of rows
+                    money_data = [st.session_state.money_data.columns.tolist()] + \
+                                st.session_state.money_data.values.tolist()
+                    money_ws.update(money_data)
+                    st.success("Money transfers synced to Google Sheets")
+            except Exception as e:
+                st.warning(f"Money transfers sync failed: {str(e)}")
+
+        return True, "Data saved successfully (local + Google Sheets)"
     except Exception as e:
         return False, f"Error saving data: {str(e)}"
 
@@ -2690,7 +2694,9 @@ def render_main_app():
                 with col_save:
                     if st.button("Save Event"):
                         st.session_state.calendar_events[date_str] = plan_text
-                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        # Explicitly pass the Google Sheet connection
+                        sheet = connect_gsheets()
+                        success, msg = save_data(sheet)
                         if success:
                             st.success(f"Saved event for {plan_date.strftime('%b %d, %Y')}")
                         else:
@@ -2754,10 +2760,8 @@ def render_main_app():
                     height=100
                 )
                 if st.button("Post Announcement"):
-                    if not ann_title.strip():
-                        st.error("Please enter a title for the announcement")
-                    elif not new_announcement.strip():
-                        st.error("Announcement content cannot be empty")
+                    if not ann_title.strip() or not new_announcement.strip():
+                        st.error("Please fill in all fields")
                     else:
                         st.session_state.announcements.append({
                             "title": ann_title,
@@ -2765,7 +2769,9 @@ def render_main_app():
                             "time": datetime.now().isoformat(),
                             "author": st.session_state.user
                         })
-                        success, msg = save_data(connect_gsheets())  # Pass connected sheet to save_data()
+                        # Sync to Google Sheets
+                        sheet = connect_gsheets()
+                        success, msg = save_data(sheet)
                         if success:
                             st.success("Announcement posted successfully!")
                         else:
@@ -3486,6 +3492,12 @@ def render_main_app():
             handled_by = st.text_input("Handled By", st.session_state.user)
             
             if st.button("Record Transaction"):
+                # Validate inputs
+                if not description.strip():
+                    st.error("Please add a description for the transaction")
+                    st.stop()
+                
+                # Create new transaction row
                 new_transaction = pd.DataFrame({
                     'Amount': [amount],
                     'Description': [description],
@@ -3493,15 +3505,26 @@ def render_main_app():
                     'Handled By': [handled_by]
                 })
                 
+                # Update session state with new transaction
                 st.session_state.money_data = pd.concat(
                     [st.session_state.money_data, new_transaction], ignore_index=True
                 )
                 
-                success, msg = save_data(connect_gsheets())
-                if success:
-                    st.success("Transaction recorded successfully!")
+                # Sync to Google Sheets immediately after saving
+                sheet = connect_gsheets()  # Ensure this function properly authenticates and returns the sheet
+                if sheet:
+                    success, msg = save_data(sheet)
+                    if success:
+                        st.success("Transaction recorded and synced to Google Sheets!")
+                    else:
+                        st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
-                    st.error(msg)
+                    # Fallback: save locally if Sheets connection fails
+                    success, msg = save_data()  # Save without Sheets
+                    if success:
+                        st.warning("Transaction saved locally (Google Sheets connection failed)")
+                    else:
+                        st.error(f"Failed to save transaction: {msg}")
             
             # Export financial report
             if not st.session_state.money_data.empty and st.button("Export Financial Report"):
@@ -3589,6 +3612,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
