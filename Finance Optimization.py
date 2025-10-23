@@ -1452,12 +1452,29 @@ def group_management_ui():
                 with st.expander("Add New Earnings Entry", expanded=False):
                     col_date, col_amount = st.columns(2)
                     with col_date:
-                        earn_date = st.date_input("Date", date.today())
+                        # Add unique key using group name
+                        earn_date = st.date_input(
+                            "Date", 
+                            date.today(),
+                            key=f"earn_date_{group}"  # Unique key for each group
+                        )
                     with col_amount:
-                        earn_amount = st.number_input("Amount ($)", min_value=0.01, step=10.0, format="%.2f")
+                        # Add unique key using group name
+                        earn_amount = st.number_input(
+                            "Amount ($)", 
+                            min_value=0.01, 
+                            step=10.0, 
+                            format="%.2f",
+                            key=f"earn_amount_{group}"  # Unique key for each group
+                        )
                     
-                    earn_desc = st.text_input("Description (e.g., Bake Sale, Fundraiser)")
+                    # Add unique key to description input
+                    earn_desc = st.text_input(
+                        "Description (e.g., Bake Sale, Fundraiser)",
+                        key=f"earn_desc_{group}"  # Unique key for each group
+                    )
                     
+                    # (Your existing "Record Earnings" button already has a unique key, which is good!)
                     if st.button("Record Earnings", key=f"earn_btn_{group}"):
                         if earn_amount <= 0:
                             st.error("Amount must be greater than $0")
@@ -3539,6 +3556,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
