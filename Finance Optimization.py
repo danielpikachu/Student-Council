@@ -2191,7 +2191,7 @@ def get_month_grid(year, month):
     return grid, month, year
     
 def calculate_attendance_rates():
-        """Safely calculate attendance rates with error handling for missing meetings"""
+    """Safely calculate attendance rates with error handling for missing meetings"""
     try:
         # Get all valid meeting columns (anything except 'Name')
         valid_meetings = [col for col in st.session_state.attendance.columns 
@@ -3577,6 +3577,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
