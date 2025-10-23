@@ -227,7 +227,9 @@ def initialize_session_state():
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
     if "group_earnings" not in st.session_state:
-        st.session_state.group_earnings = {f"G{i}": [] for i in range(1,9)}
+        st.session_state.group_earnings = pd.DataFrame(
+            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
+        )
     
     # Define all required state variables with defaults
     required_states = {
@@ -629,8 +631,8 @@ def load_groups_data():
         st.error(f"Error loading group data: {str(e)}")
         return False, f"Error loading group data: {str(e)}"
 
-def save_groups_data():
-    """Save group data safely (including earnings)"""
+def save_groups_data(sheet=None):
+    """Save group data safely (including earnings) and sync to Google Sheets"""
     try:
         backup_data()  # Backup before saving changes
         group_data = {
@@ -638,14 +640,79 @@ def save_groups_data():
             "group_members": st.session_state.group_members,
             "group_meetings": st.session_state.group_meetings,
             "group_descriptions": st.session_state.group_descriptions,
-            "group_earnings": st.session_state.group_earnings  # New: Save earnings
+            "group_earnings": st.session_state.group_earnings  # Keep existing earnings save
         }
         
+        # Save locally first (unchanged)
         temp_file = f"{GROUPS_FILE}.tmp"
         with open(temp_file, "w") as f:
             json.dump(group_data, f, indent=2)
         os.replace(temp_file, GROUPS_FILE)
-        return True, "Group data saved successfully"
+        
+        # Google Sheets Sync (only if sheet connection is provided)
+        if sheet:
+            # --------------------------
+            # 1. Sync Group Earnings to "Group Earnings" worksheet
+            # --------------------------
+            try:
+                # Get or create worksheet (name: "Group Earnings")
+                try:
+                    earnings_ws = sheet.worksheet("GroupEarnings")
+                except:
+                    # Create worksheet with columns for group-specific earnings
+                    earnings_ws = sheet.add_worksheet(
+                        title="GroupEarnings",
+                        rows="1000",  # Adjust based on expected entries
+                        cols="5"      # 5 columns: Group, Date, Amount, Description, Recorded By
+                    )
+                    earnings_ws.append_row(["Group", "Date", "Amount", "Description", "Recorded By"])
+                
+                # Clear old data (keep header row)
+                if len(earnings_ws.get_all_values()) > 1:
+                    earnings_ws.delete_rows(2, len(earnings_ws.get_all_values()))
+                
+                # Flatten group earnings into rows (one row per entry)
+                earnings_rows = []
+                for group_name, entries in st.session_state.group_earnings.items():
+                    for entry in entries:
+                        earnings_rows.append([
+                            group_name,                  # Name of the group
+                            entry["date"],               # Date of earnings
+                            f"${entry['amount']:.2f}",   # Format amount as currency
+                            entry["description"],        # Source/description
+                            entry["recorded_by"]         # Who recorded it
+                        ])
+                
+                # Add all earnings to the sheet
+                if earnings_rows:
+                    earnings_ws.append_rows(earnings_rows)  # Efficient bulk append
+                st.success("Group earnings synced to Google Sheets")
+            except Exception as e:
+                st.warning(f"Warning: Group earnings sync failed - {str(e)}")
+
+            try:
+                # Sync Group Members to "Group Members" worksheet
+                try:
+                    members_ws = sheet.worksheet("Group Members")
+                except:
+                    members_ws = sheet.add_worksheet(title="Group Members", rows="500", cols="2")
+                    members_ws.append_row(["Group", "Member"])
+                
+                if len(members_ws.get_all_values()) > 1:
+                    members_ws.delete_rows(2, len(members_ws.get_all_values()))
+                
+                members_rows = []
+                for group, members in st.session_state.group_members.items():
+                    for member in members:
+                        members_rows.append([group, member])
+                
+                if members_rows:
+                    members_ws.append_rows(members_rows)
+                st.success("Group members synced to Google Sheets")
+            except Exception as e:
+                st.warning(f"Warning: Group members sync failed - {str(e)}")
+
+        return True, "Group data saved successfully (local + Google Sheets)"
     except Exception as e:
         return False, f"Error saving group data: {str(e)}"
 
@@ -1438,7 +1505,7 @@ def group_management_ui():
 
                 st.subheader("💰 Group Earnings")
                 
-                # Display earnings history
+                # Display earnings history (keep your existing code)
                 earnings = st.session_state.group_earnings.get(group, [])
                 if earnings:
                     # Convert to DataFrame for clean display
@@ -1452,42 +1519,38 @@ def group_management_ui():
                 else:
                     st.info(f"No earnings recorded for {group} yet.")
                 
-                # Add new earnings entry (admin or group members can add)
+                # Add new earnings entry (updated for Google Sheets sync)
                 with st.expander("Add New Earnings Entry", expanded=False):
                     col_date, col_amount = st.columns(2)
                     with col_date:
-                        # Add unique key using group name
                         earn_date = st.date_input(
                             "Date", 
                             date.today(),
-                            key=f"earn_date_{group}"  # Unique key for each group
+                            key=f"earn_date_{group}"
                         )
                     with col_amount:
-                        # Add unique key using group name
                         earn_amount = st.number_input(
                             "Amount ($)", 
                             min_value=0.01, 
                             step=10.0, 
                             format="%.2f",
-                            key=f"earn_amount_{group}"  # Unique key for each group
+                            key=f"earn_amount_{group}"
                         )
                     
-                    # Add unique key to description input
                     earn_desc = st.text_input(
                         "Description (e.g., Bake Sale, Fundraiser)",
-                        key=f"earn_desc_{group}"  # Unique key for each group
+                        key=f"earn_desc_{group}"
                     )
                     
-                    # (Your existing "Record Earnings" button already has a unique key, which is good!)
                     if st.button("Record Earnings", key=f"earn_btn_{group}"):
                         if earn_amount <= 0:
                             st.error("Amount must be greater than $0")
                         elif not earn_desc.strip():
                             st.error("Please add a description")
                         else:
-                            # Safety check: Ensure group exists in group_earnings
+                            # Initialize group in session state if missing
                             if group not in st.session_state.group_earnings:
-                                st.session_state.group_earnings[group] = []  # Initialize if missing
+                                st.session_state.group_earnings[group] = []
                             
                             # Add new entry
                             new_entry = {
@@ -1498,13 +1561,24 @@ def group_management_ui():
                             }
                             st.session_state.group_earnings[group].append(new_entry)
                             
-                            # Save changes
-                            success, msg = save_groups_data()
-                            if success:
-                                st.success(f"Recorded ${earn_amount:.2f} for {group}")
-                                st.rerun()
+                            # Save locally AND sync to Google Sheets
+                            sheet = connect_gsheets()  # Get Google Sheet connection
+                            if sheet:
+                                # Sync to Sheets and save locally
+                                success, msg = save_groups_data(sheet)  # Pass sheet to save_groups_data
+                                if success:
+                                    st.success(f"Recorded ${earn_amount:.2f} for {group} (synced to Sheets)")
+                                else:
+                                    st.error(f"Recorded locally but sync failed: {msg}")
                             else:
-                                st.error(msg)
+                                # Fallback: save only locally if Sheets connection fails
+                                success, msg = save_groups_data()  # Save without Sheets
+                                if success:
+                                    st.warning(f"Recorded ${earn_amount:.2f} locally (Sheets unavailable)")
+                                else:
+                                    st.error(msg)
+                            
+                            st.rerun()
 
             # Show meetings if any exist
             if st.session_state.group_meetings.get(group, []):
@@ -3612,6 +3686,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
