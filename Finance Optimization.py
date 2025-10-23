@@ -2220,7 +2220,7 @@ def render_calendar():
     grid, month, year = get_month_grid(current_year, current_month)
     
     # Display weekday headers
-    headers = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    headers = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     header_cols = st.columns(7)
     for col, header in zip(header_cols, headers):
         col.markdown(f'<div class="day-header">{header}</div>', unsafe_allow_html=True)
@@ -3686,6 +3686,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
