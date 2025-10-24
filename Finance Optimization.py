@@ -17,6 +17,79 @@ import base64
 from datetime import date, datetime
 
 # ------------------------------
+# Authentication System
+# ------------------------------
+def verify_credentials(username, password):
+    """Verify user credentials against Streamlit Secrets"""
+    try:
+        # Get users from Streamlit secrets
+        users = st.secrets["users"]
+        
+        # Check if username exists
+        if username not in users:
+            return False, None
+            
+        # Get stored credentials
+        user_data = users[username]
+        hashed_password = user_data["password"].encode('utf-8')
+        user_role = user_data["role"]
+        
+        # Verify password with bcrypt
+        if bcrypt.checkpw(password.encode('utf-8'), hashed_password):
+            return True, user_role
+        return False, None
+        
+    except Exception as e:
+        st.error(f"Authentication error: {str(e)}")
+        return False, None
+
+def login_page():
+    """Display login form and handle authentication flow"""
+    st.title("🔐 Login")
+    st.write("Please enter your credentials to access the system")
+    
+    # Initialize login attempts if not exists
+    if "login_attempts" not in st.session_state:
+        st.session_state.login_attempts = 0
+    
+    with st.form("login_form", clear_on_submit=True):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submit = st.form_submit_button("Login")
+        
+        if submit:
+            # Validate input
+            if not username or not password:
+                st.warning("Please enter both username and password")
+                return
+                
+            # Check login attempts
+            if st.session_state.login_attempts >= 3:
+                st.error("Too many failed attempts. Please restart the app.")
+                return
+                
+            # Verify credentials
+            success, role = verify_credentials(username, password)
+            if success:
+                # Set session state for authenticated user
+                st.session_state.user = username
+                st.session_state.role = role
+                st.success(f"Welcome {username}!")
+                st.rerun()  # Refresh to load main app
+            else:
+                st.session_state.login_attempts += 1
+                remaining = 3 - st.session_state.login_attempts
+                st.error(f"Invalid credentials. {remaining} attempt(s) remaining.")
+
+def logout():
+    """Handle user logout"""
+    st.session_state.user = None
+    st.session_state.role = None
+    st.session_state.login_attempts = 0
+    st.success("You have been logged out successfully")
+    st.rerun()
+
+# ------------------------------
 # Configuration and Constants
 # ------------------------------
 st.set_page_config(
@@ -3746,17 +3819,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
