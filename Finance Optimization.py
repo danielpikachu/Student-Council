@@ -1578,8 +1578,6 @@ def group_management_ui():
                                     st.error(msg)
                     else:
                         st.info("No entries to delete")
-            else:
-                st.info(f"No earnings recorded for {group} yet.")
                 
                 # Add new earnings entry (updated for Google Sheets sync)
                 with st.expander("Add New Earnings Entry", expanded=False):
@@ -3748,6 +3746,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
