@@ -1353,6 +1353,39 @@ def sync_group_members_to_sheets(sheet, group_name):
         [group_name, members_str, f"${total_earned:.2f}", datetime.now().isoformat(), len(earnings)]
     ])
 
+def delete_group_earning(group_name, entry_index):
+    """
+    Delete a specific earnings entry from a group.
+    
+    Args:
+        group_name (str): Name of the group
+        entry_index (int): Index of the entry to delete (0-based)
+    """
+    try:
+        # Check if the group exists in earnings
+        if group_name not in st.session_state.group_earnings:
+            return False, f"Group '{group_name}' has no earnings records"
+        
+        earnings = st.session_state.group_earnings[group_name]
+        
+        # Check if the index is valid
+        if entry_index < 0 or entry_index >= len(earnings):
+            return False, "Invalid entry index (does not exist)"
+        
+        # Delete the entry
+        deleted_entry = earnings.pop(entry_index)
+        
+        # Save changes (local + Google Sheets sync)
+        sheet = connect_gsheets()
+        success, msg = save_groups_data(sheet)
+        if success:
+            return True, f"Deleted entry: ${deleted_entry['amount']:.2f} on {deleted_entry['date']}"
+        else:
+            return False, f"Entry deleted locally but save failed: {msg}"
+    
+    except Exception as e:
+        return False, f"Error deleting entry: {str(e)}"
+        
 # ------------------------------
 # UI Components
 # ------------------------------
@@ -1518,6 +1551,35 @@ def group_management_ui():
                     st.metric(f"Total Earnings for {group}", f"${total_earned:.2f}")
                 else:
                     st.info(f"No earnings recorded for {group} yet.")
+
+                with st.expander("Delete an Earnings Entry", expanded=False):
+                    # Let user select which entry to delete (using the Entry ID from the DataFrame)
+                    entry_ids = [f"Entry {i} (${earnings[i]['amount']:.2f} on {earnings[i]['date']})" 
+                                for i in range(len(earnings))]
+                    
+                    if entry_ids:
+                        selected_entry = st.selectbox(
+                            "Select entry to delete",
+                            options=entry_ids,
+                            key=f"delete_earning_select_{group}"
+                        )
+                        
+                        # Extract the index from the selected entry (e.g., "Entry 2 ..." → index 2)
+                        if selected_entry:
+                            entry_index = int(selected_entry.split("Entry ")[1].split(" ")[0])
+                            
+                            if st.button("Confirm Delete", key=f"delete_earning_btn_{group}"):
+                                # Call the delete function
+                                success, msg = delete_group_earning(group, entry_index)
+                                if success:
+                                    st.success(msg)
+                                    st.rerun()  # Refresh to show updated list
+                                else:
+                                    st.error(msg)
+                    else:
+                        st.info("No entries to delete")
+            else:
+                st.info(f"No earnings recorded for {group} yet.")
                 
                 # Add new earnings entry (updated for Google Sheets sync)
                 with st.expander("Add New Earnings Entry", expanded=False):
@@ -3686,6 +3748,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
