@@ -335,9 +335,9 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state(sheet):  # Add 'sheet' parameter here
+def initialize_session_state():
     """Initialize all session state variables with defaults"""
-    # Core user state
+    # Core user state (existing)
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
@@ -349,9 +349,81 @@ def initialize_session_state(sheet):  # Add 'sheet' parameter here
             columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
         )
     
-    # Add this line to track initialization status
+    # Attendance data
+    if "attendance" not in st.session_state:
+        st.session_state.attendance = pd.DataFrame(columns=["Name"])
+    if "council_members" not in st.session_state:
+        st.session_state.council_members = ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+    if "meeting_names" not in st.session_state:
+        st.session_state.meeting_names = ["First Meeting"]
+    
+    # Financial data
+    if "scheduled_events" not in st.session_state:
+        st.session_state.scheduled_events = pd.DataFrame(columns=[
+            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
+        ])
+    if "occasional_events" not in st.session_state:
+        st.session_state.occasional_events = pd.DataFrame(columns=[
+            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+            'Preparation Time', 'Rating'
+        ])
+    if "money_data" not in st.session_state:
+        st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
+    
+    # Credit and rewards system
+    if "credit_data" not in st.session_state:
+        st.session_state.credit_data = pd.DataFrame({
+            'Name': ["Alice", "Bob", "Charlie", "Diana", "Evan"],
+            'Total_Credits': [200, 200, 200, 200, 200],
+            'RedeemedCredits': [50, 0, 50, 0, 50]
+        })
+    if "reward_data" not in st.session_state:
+        st.session_state.reward_data = pd.DataFrame({
+            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+            'Cost': [50, 30, 80],
+            'Stock': [10, 20, 5]
+        })
+    if "wheel_prizes" not in st.session_state:
+        st.session_state.wheel_prizes = [
+            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
+            "Café Coupon", "Free Prom Ticket", "200 Credits"
+        ]
+    if "wheel_colors" not in st.session_state:
+        st.session_state.wheel_colors = plt.cm.tab10(np.linspace(0, 1, 7))
+    if "spinning" not in st.session_state:
+        st.session_state.spinning = False
+    if "winner" not in st.session_state:
+        st.session_state.winner = None
+    
+    # Calendar and announcements
+    if "calendar_events" not in st.session_state:
+        st.session_state.calendar_events = {}
+    if "current_calendar_month" not in st.session_state:
+        st.session_state.current_calendar_month = (date.today().year, date.today().month)
+    if "announcements" not in st.session_state:
+        st.session_state.announcements = []
+    
+    # Group management
+    if "groups" not in st.session_state:
+        st.session_state.groups = ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"]
+    if "group_members" not in st.session_state:
+        st.session_state.group_members = {f"G{i}": [] for i in range(1,9)}
+    if "group_meetings" not in st.session_state:
+        st.session_state.group_meetings = {f"G{i}": [] for i in range(1,9)}
+    if "group_descriptions" not in st.session_state:
+        st.session_state.group_descriptions = {f"G{i}": f"Default group {i}" for i in range(1,9)}
+    if "current_group" not in st.session_state:
+        st.session_state.current_group = None
+    if "reimbursements" not in st.session_state:
+        st.session_state.reimbursements = {"requests": []}  # Reimbursement data
+    
+    # Other app state
+    if "allocation_count" not in st.session_state:
+        st.session_state.allocation_count = 0
+    if "group_codes_initialized" not in st.session_state:
+        st.session_state.group_codes_initialized = False
     if "initialized" not in st.session_state:
-        st.session_state.initialized = False  # New flag
+        st.session_state.initialized = False
     
     # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
@@ -3896,4 +3968,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
