@@ -404,6 +404,11 @@ def initialize_session_state(sheet=None):
         "initialized": False
     }
     
+    # Initialize any missing variables
+    for key, default in required_states.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+    
     # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
         try:
@@ -3947,6 +3952,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
