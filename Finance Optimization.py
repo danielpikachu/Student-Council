@@ -265,21 +265,23 @@ def connect_gsheets():
         return None
 
 def initialize_google_sheets(sheet):
-    """Initialize required worksheets only if they don't exist"""
-    required_tabs = ["users", "groups", "reimbursements", "group_codes", "config", "app_data"]
+    """Create required worksheets only if they don't exist"""
+    required_tabs = ["users", "groups", "reimbursements", "group_codes", "config", "app_data", "calendar", "credits", "money_transfers", "group_earnings"]
     
-    # Get list of existing worksheet names
+    if not sheet:
+        return
+    
     existing_tabs = [ws.title for ws in sheet.worksheets()]
     
     for tab in required_tabs:
-        if tab not in existing_tabs:  # Only create if missing
+        if tab not in existing_tabs:
             try:
                 sheet.add_worksheet(title=tab, rows="1000", cols="20")
                 st.success(f"Created worksheet: {tab}")
             except gspread.exceptions.APIError as e:
                 st.error(f"Failed to create {tab}: {str(e)}")
         else:
-            st.info(f"Worksheet {tab} already exists (no action needed)")  # Clearer message
+            st.info(f"Worksheet {tab} already exists (no action needed)")
 
 def save_to_gsheet(sheet, tab, df):
     """Save a DataFrame to a Google Sheets tab"""
@@ -331,26 +333,23 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state(sheet):
-    """Initialize session state with data from Google Sheets (with error handling)"""
-    # Core user state (keep existing)
+def initialize_session_state(sheet):  # Add 'sheet' parameter here
+    """Initialize all session state variables with defaults"""
+    # Core user state
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
-
-    # Define helper to load data from Google Sheets with fallback
+    
+    # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
-        """
-        Load data from a Google Sheet tab with validation
-        :param tab: Worksheet name
-        :param expected_columns: List of expected columns (optional)
-        :return: Validated DataFrame
-        """
         try:
-            # Check if sheet exists first
+            if not sheet:  # Handle case where Google Sheets isn't connected
+                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
+            
+            # Check if worksheet exists
             if not any(ws.title == tab for ws in sheet.worksheets()):
                 st.warning(f"Worksheet '{tab}' not found. Initializing empty DataFrame.")
                 return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
@@ -358,51 +357,38 @@ def initialize_session_state(sheet):
             ws = sheet.worksheet(tab)
             all_values = ws.get_all_values()
             
-            # Handle empty worksheet
-            if not all_values:
-                st.info(f"Worksheet '{tab}' is empty. Initializing with expected columns.")
+            if not all_values:  # Empty worksheet
                 return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
 
-            # Get headers and data
             headers = all_values[0]
-            data = all_values[1:]  # Skip header row
-            
-            # Create DataFrame
+            data = all_values[1:]
             df = pd.DataFrame(data, columns=headers)
             
-            # Validate columns if expected columns are provided
+            # Add missing columns if needed
             if expected_columns:
-                missing = set(expected_columns) - set(df.columns)
-                if missing:
-                    st.warning(f"Worksheet '{tab}' missing columns: {missing}. Adding them as empty.")
-                    for col in missing:
-                        df[col] = ""  # Add missing columns with empty values
-            
+                for col in expected_columns:
+                    if col not in df.columns:
+                        df[col] = ""
             return df
-
-        except gspread.exceptions.APIError as e:
-            st.error(f"API Error loading '{tab}': {str(e)}")
         except Exception as e:
-            st.error(f"Unexpected error loading '{tab}': {str(e)}")
-        
-        # Fallback: return empty DataFrame with expected columns if specified
-        return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
+            st.error(f"Error loading {tab}: {str(e)}")
+            return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
 
-    # Define expected columns for each worksheet (customize based on your needs)
+    # Define expected columns for each worksheet (match your Google Sheet structure)
     expected_columns = {
-        "users": ["username", "password", "role", "email"],  # Example columns
+        "users": ["username", "password", "role", "email"],
         "groups": ["group_id", "name", "leader", "members"],
         "reimbursements": ["id", "group", "amount", "date", "status"],
         "group_codes": ["code", "group_id", "is_active"],
         "config": ["key", "value"],
         "app_data": ["timestamp", "event", "details"],
-        "calendar": ["date", "event", "location", "group"],
-        "credits": ["user", "amount", "date", "description"],
-        "money_transfers": ["from", "to", "amount", "date", "notes"],
-        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"]  # Critical for your error
+        "calendar": ["date", "event", "location"],
+        "credits": ["user", "amount", "date"],
+        "money_transfers": ["from", "to", "amount", "date"],
+        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"]
     }
 
-    # Load all data from Google Sheets with validation
+    # Load data into session state
     if "users" not in st.session_state:
         st.session_state.users = load_from_gsheet("users", expected_columns["users"])
     if "groups" not in st.session_state:
@@ -3869,15 +3855,15 @@ if 'money_data' not in st.session_state or st.session_state.money_data.empty:
 # Main Application Flow
 # ------------------------------
 def main():
+    sheet = connect_gsheets()
+    if sheet:
+        initialize_google_sheets(sheet)  # Create missing worksheets first
+    initialize_session_state(sheet)  # Then load data
     # Initialize files and session state
     initialize_files()
-    initialize_session_state()
     
     # Load group data
     load_groups_data()
-    
-    # Connect to Google Sheets
-    sheet = connect_gsheets()
     
     # Load application data if not initialized
     if not st.session_state.initialized:
@@ -3899,7 +3885,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
