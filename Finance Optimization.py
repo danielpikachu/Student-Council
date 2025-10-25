@@ -336,8 +336,8 @@ def initialize_files():
 # Session State Initialization
 # ------------------------------
 def initialize_session_state(sheet=None):
-    """Initialize session state variables, prioritizing Google Sheets data when available"""
-    # Core user state (basic auth variables)
+    """Initialize session state variables with Google Sheets integration"""
+    # Core user state
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
@@ -345,44 +345,56 @@ def initialize_session_state(sheet=None):
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
 
-    # Helper function to load data from Google Sheet with validation
+    # Helper function with proper worksheet existence check
     def load_from_gsheet(tab, expected_columns):
-        """Load data from specified Google Sheet tab with fallback to empty DataFrame"""
         if not sheet:
             return pd.DataFrame(columns=expected_columns)
         
         try:
-            # Check if worksheet exists
-            worksheets = sheet.worksheets()
-            if not any(ws.title == tab for ws in worksheets):
-                st.info(f"Worksheet '{tab}' not found. Creating empty one.")
-                sheet.add_worksheet(title=tab, rows="100", cols=str(len(expected_columns)))
-                sheet.worksheet(tab).append_row(expected_columns)  # Add headers
-                return pd.DataFrame(columns=expected_columns)
-
-            # Load and process data
-            ws = sheet.worksheet(tab)
-            all_values = ws.get_all_values()
+            # Get all worksheets once (reduces API calls)
+            all_worksheets = {ws.title.lower(): ws for ws in sheet.worksheets()}
+            tab_lower = tab.lower()
             
-            if len(all_values) < 1:  # No data or headers
+            # Check for case-insensitive match
+            if tab_lower in all_worksheets:
+                ws = all_worksheets[tab_lower]
+                st.info(f"Loaded existing worksheet: {ws.title}")
+            else:
+                # Create new worksheet if no match found
+                st.info(f"Worksheet '{tab}' not found. Creating new one.")
+                ws = sheet.add_worksheet(title=tab, rows="100", cols=str(len(expected_columns)))
+                ws.append_row(expected_columns)  # Add headers
                 return pd.DataFrame(columns=expected_columns)
 
-            # Use first row as headers
+            # Load data with quota protection
+            for attempt in range(3):
+                try:
+                    all_values = ws.get_all_values()
+                    break
+                except gspread.exceptions.APIError as e:
+                    if "429" in str(e) and attempt < 2:
+                        st.warning(f"Quota limit hit loading {tab}. Retrying...")
+                        time.sleep(2** attempt)
+                    else:
+                        raise e
+
+            if len(all_values) < 1:
+                return pd.DataFrame(columns=expected_columns)
+
             headers = all_values[0]
             data = all_values[1:] if len(all_values) > 1 else []
             
-            # Create DataFrame and ensure all expected columns exist
             df = pd.DataFrame(data, columns=headers)
             for col in expected_columns:
                 if col not in df.columns:
-                    df[col] = ""  # Add missing columns with empty values
+                    df[col] = ""
             return df
 
         except Exception as e:
-            st.error(f"Error loading '{tab}' from Google Sheets: {str(e)}")
+            st.error(f"Error loading '{tab}': {str(e)}")
             return pd.DataFrame(columns=expected_columns)
 
-    # Define expected columns for each worksheet (MATCH YOUR SHEET STRUCTURE)
+    # Define expected columns for each worksheet
     expected_columns = {
         "users": ["username", "password", "role", "email"],
         "groups": ["group_id", "name", "leader", "members"],
@@ -404,46 +416,39 @@ def initialize_session_state(sheet=None):
         "reward_data": ['Reward', 'Cost', 'Stock']
     }
 
-    # Load data from Google Sheets FIRST (highest priority)
-    # These will overwrite defaults if data exists
-    st.session_state.users = load_from_gsheet("users", expected_columns["users"])
-    st.session_state.groups = load_from_gsheet("groups", expected_columns["groups"])
-    st.session_state.reimbursements = load_from_gsheet("reimbursements", expected_columns["reimbursements"])
-    st.session_state.group_codes = load_from_gsheet("group_codes", expected_columns["group_codes"])
-    st.session_state.config = load_from_gsheet("config", expected_columns["config"])
-    st.session_state.app_data = load_from_gsheet("app_data", expected_columns["app_data"])
-    st.session_state.calendar = load_from_gsheet("calendar", expected_columns["calendar"])
-    st.session_state.credits = load_from_gsheet("credits", expected_columns["credits"])
-    st.session_state.money_transfers = load_from_gsheet("money_transfers", expected_columns["money_transfers"])
-    st.session_state.group_earnings = load_from_gsheet("group_earnings", expected_columns["group_earnings"])
-    st.session_state.attendance = load_from_gsheet("attendance", expected_columns["attendance"])
-    st.session_state.scheduled_events = load_from_gsheet("scheduled_events", expected_columns["scheduled_events"])
-    st.session_state.occasional_events = load_from_gsheet("occasional_events", expected_columns["occasional_events"])
-    st.session_state.money_data = load_from_gsheet("money_data", expected_columns["money_data"])
-    st.session_state.credit_data = load_from_gsheet("credit_data", expected_columns["credit_data"])
-    st.session_state.reward_data = load_from_gsheet("reward_data", expected_columns["reward_data"])
+    # Load data with quota-aware logic
+    import time  # Import here for quota handling
+    
+    # Load critical data first
+    critical_sheets = ["users", "groups", "credits"]
+    for tab in critical_sheets:
+        if tab not in st.session_state:
+            st.session_state[tab] = load_from_gsheet(tab, expected_columns[tab])
+            time.sleep(0.5)  # Throttle requests
+    
+    # Load remaining sheets with delay to prevent quota issues
+    for tab in expected_columns:
+        if tab not in critical_sheets and tab not in st.session_state:
+            st.session_state[tab] = load_from_gsheet(tab, expected_columns[tab])
+            time.sleep(0.3)  # Reduce API request rate
 
-    # Load list-based data (convert DataFrame to list)
+    # Handle list-based data
     council_members_df = load_from_gsheet("council_members", expected_columns["council_members"])
     st.session_state.council_members = council_members_df["Name"].tolist() if not council_members_df.empty else ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+    time.sleep(0.3)
 
     meeting_names_df = load_from_gsheet("meeting_names", expected_columns["meeting_names"])
     st.session_state.meeting_names = meeting_names_df["Meeting"].tolist() if not meeting_names_df.empty else ["First Meeting"]
 
-    # Define default values for remaining state variables (only if not already set)
+    # Set remaining defaults
     default_states = {
-        # Calendar and announcements
         "calendar_events": {},
         "current_calendar_month": (date.today().year, date.today().month),
         "announcements": [],
-        
-        # Group management
-        "group_members": {f"G{i}": [] for i in range(1,9)} if st.session_state.groups.empty else {},
-        "group_meetings": {f"G{i}": [] for i in range(1,9)} if st.session_state.groups.empty else {},
-        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)} if st.session_state.groups.empty else {},
+        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_meetings": {f"G{i}": [] for i in range(1,9)},
+        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
         "current_group": None,
-        
-        # Wheel of fortune
         "wheel_prizes": [
             "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
             "Café Coupon", "Free Prom Ticket", "200 Credits"
@@ -451,20 +456,15 @@ def initialize_session_state(sheet=None):
         "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
         "spinning": False,
         "winner": None,
-        
-        # Other app state
         "allocation_count": 0,
         "group_codes_initialized": False,
-        "initialized": True  # Mark initialization complete
+        "initialized": True,
+        "gsheets_connected": sheet is not None
     }
 
-    # Set defaults only if they don't exist in session state
     for key, default in default_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
-
-    # Verify Google Sheets connection status
-    st.session_state.gsheets_connected = sheet is not None
 
 def initialize_group_system():
     """Initialize group system with validation checks"""
@@ -3942,3 +3942,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
