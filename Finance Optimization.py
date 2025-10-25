@@ -336,111 +336,53 @@ def initialize_files():
 # Session State Initialization
 # ------------------------------
 def initialize_session_state(sheet=None):
-    """Initialize all session state variables with defaults"""
-    # Core user state
+    """Initialize session state variables, prioritizing Google Sheets data when available"""
+    # Core user state (basic auth variables)
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
-    if "group_earnings" not in st.session_state:
-        st.session_state.group_earnings = pd.DataFrame(
-            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
-        )
-    
-    # Define all required state variables with defaults
-    required_states = {
-        # Attendance data
-        "attendance": pd.DataFrame(columns=["Name"]),
-        "council_members": ["Alice", "Bob", "Charlie", "Diana", "Evan"],
-        "meeting_names": ["First Meeting"],
-        
-        # Financial data
-        "scheduled_events": pd.DataFrame(columns=[
-            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
-        ]),
-        "occasional_events": pd.DataFrame(columns=[
-            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
-            'Preparation Time', 'Rating'
-        ]),
-        "money_data": pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By']),
-        
-        # Credit and rewards system
-        "credit_data": pd.DataFrame({
-            'Name': ["Alice", "Bob", "Charlie", "Diana", "Evan"],
-            'Total_Credits': [200, 200, 200, 200, 200],
-            'RedeemedCredits': [50, 0, 50, 0, 50]
-        }),
-        "reward_data": pd.DataFrame({
-            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
-            'Cost': [50, 30, 80],
-            'Stock': [10, 20, 5]
-        }),
-        "wheel_prizes": [
-            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
-            "Café Coupon", "Free Prom Ticket", "200 Credits"
-        ],
-        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
-        "spinning": False,
-        "winner": None,
-        
-        # Calendar and announcements
-        "calendar_events": {},
-        "current_calendar_month": (date.today().year, date.today().month),
-        "announcements": [],
-        
-        # Group management
-        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
-        "group_members": {f"G{i}": [] for i in range(1,9)},
-        "group_meetings": {f"G{i}": [] for i in range(1,9)},
-        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
-        "current_group": None,
-        "reimbursements": {"requests": []},  # Reimbursement data
-        
-        # Other app state
-        "allocation_count": 0,
-        "group_codes_initialized": False,
-        "initialized": False
-    }
-    
-    # Initialize any missing variables
-    for key, default in required_states.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
-    
-    # Define helper to load data from Google Sheets
-    def load_from_gsheet(tab, expected_columns=None):
-        try:
-            if not sheet:  # Handle case where Google Sheets isn't connected
-                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
-            
-            # Check if worksheet exists
-            if not any(ws.title == tab for ws in sheet.worksheets()):
-                st.warning(f"Worksheet '{tab}' not found. Initializing empty DataFrame.")
-                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
 
+    # Helper function to load data from Google Sheet with validation
+    def load_from_gsheet(tab, expected_columns):
+        """Load data from specified Google Sheet tab with fallback to empty DataFrame"""
+        if not sheet:
+            return pd.DataFrame(columns=expected_columns)
+        
+        try:
+            # Check if worksheet exists
+            worksheets = sheet.worksheets()
+            if not any(ws.title == tab for ws in worksheets):
+                st.info(f"Worksheet '{tab}' not found. Creating empty one.")
+                sheet.add_worksheet(title=tab, rows="100", cols=str(len(expected_columns)))
+                sheet.worksheet(tab).append_row(expected_columns)  # Add headers
+                return pd.DataFrame(columns=expected_columns)
+
+            # Load and process data
             ws = sheet.worksheet(tab)
             all_values = ws.get_all_values()
             
-            if not all_values:  # Empty worksheet
-                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
+            if len(all_values) < 1:  # No data or headers
+                return pd.DataFrame(columns=expected_columns)
 
+            # Use first row as headers
             headers = all_values[0]
-            data = all_values[1:]
-            df = pd.DataFrame(data, columns=headers)
+            data = all_values[1:] if len(all_values) > 1 else []
             
-            # Add missing columns if needed
-            if expected_columns:
-                for col in expected_columns:
-                    if col not in df.columns:
-                        df[col] = ""
+            # Create DataFrame and ensure all expected columns exist
+            df = pd.DataFrame(data, columns=headers)
+            for col in expected_columns:
+                if col not in df.columns:
+                    df[col] = ""  # Add missing columns with empty values
             return df
-        except Exception as e:
-            st.error(f"Error loading {tab}: {str(e)}")
-            return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
 
-    # Define expected columns for each worksheet (match your Google Sheet structure)
+        except Exception as e:
+            st.error(f"Error loading '{tab}' from Google Sheets: {str(e)}")
+            return pd.DataFrame(columns=expected_columns)
+
+    # Define expected columns for each worksheet (MATCH YOUR SHEET STRUCTURE)
     expected_columns = {
         "users": ["username", "password", "role", "email"],
         "groups": ["group_id", "name", "leader", "members"],
@@ -451,30 +393,78 @@ def initialize_session_state(sheet=None):
         "calendar": ["date", "event", "location"],
         "credits": ["user", "amount", "date"],
         "money_transfers": ["from", "to", "amount", "date"],
-        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"]
+        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"],
+        "attendance": ["Name"],
+        "council_members": ["Name"],
+        "meeting_names": ["Meeting"],
+        "scheduled_events": ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'],
+        "occasional_events": ['Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 'Preparation Time', 'Rating'],
+        "money_data": ['Amount', 'Description', 'Date', 'Handled By'],
+        "credit_data": ['Name', 'Total_Credits', 'RedeemedCredits'],
+        "reward_data": ['Reward', 'Cost', 'Stock']
     }
 
-    # Load data into session state
-    if "users" not in st.session_state:
-        st.session_state.users = load_from_gsheet("users", expected_columns["users"])
-    if "groups" not in st.session_state:
-        st.session_state.groups = load_from_gsheet("groups", expected_columns["groups"])
-    if "reimbursements" not in st.session_state:
-        st.session_state.reimbursements = load_from_gsheet("reimbursements", expected_columns["reimbursements"])
-    if "group_codes" not in st.session_state:
-        st.session_state.group_codes = load_from_gsheet("group_codes", expected_columns["group_codes"])
-    if "config" not in st.session_state:
-        st.session_state.config = load_from_gsheet("config", expected_columns["config"])
-    if "app_data" not in st.session_state:
-        st.session_state.app_data = load_from_gsheet("app_data", expected_columns["app_data"])
-    if "calendar" not in st.session_state:
-        st.session_state.calendar = load_from_gsheet("calendar", expected_columns["calendar"])
-    if "credits" not in st.session_state:
-        st.session_state.credits = load_from_gsheet("credits", expected_columns["credits"])
-    if "money_transfers" not in st.session_state:
-        st.session_state.money_transfers = load_from_gsheet("money_transfers", expected_columns["money_transfers"])
-    if "group_earnings" not in st.session_state:
-        st.session_state.group_earnings = load_from_gsheet("group_earnings", expected_columns["group_earnings"])
+    # Load data from Google Sheets FIRST (highest priority)
+    # These will overwrite defaults if data exists
+    st.session_state.users = load_from_gsheet("users", expected_columns["users"])
+    st.session_state.groups = load_from_gsheet("groups", expected_columns["groups"])
+    st.session_state.reimbursements = load_from_gsheet("reimbursements", expected_columns["reimbursements"])
+    st.session_state.group_codes = load_from_gsheet("group_codes", expected_columns["group_codes"])
+    st.session_state.config = load_from_gsheet("config", expected_columns["config"])
+    st.session_state.app_data = load_from_gsheet("app_data", expected_columns["app_data"])
+    st.session_state.calendar = load_from_gsheet("calendar", expected_columns["calendar"])
+    st.session_state.credits = load_from_gsheet("credits", expected_columns["credits"])
+    st.session_state.money_transfers = load_from_gsheet("money_transfers", expected_columns["money_transfers"])
+    st.session_state.group_earnings = load_from_gsheet("group_earnings", expected_columns["group_earnings"])
+    st.session_state.attendance = load_from_gsheet("attendance", expected_columns["attendance"])
+    st.session_state.scheduled_events = load_from_gsheet("scheduled_events", expected_columns["scheduled_events"])
+    st.session_state.occasional_events = load_from_gsheet("occasional_events", expected_columns["occasional_events"])
+    st.session_state.money_data = load_from_gsheet("money_data", expected_columns["money_data"])
+    st.session_state.credit_data = load_from_gsheet("credit_data", expected_columns["credit_data"])
+    st.session_state.reward_data = load_from_gsheet("reward_data", expected_columns["reward_data"])
+
+    # Load list-based data (convert DataFrame to list)
+    council_members_df = load_from_gsheet("council_members", expected_columns["council_members"])
+    st.session_state.council_members = council_members_df["Name"].tolist() if not council_members_df.empty else ["Alice", "Bob", "Charlie", "Diana", "Evan"]
+
+    meeting_names_df = load_from_gsheet("meeting_names", expected_columns["meeting_names"])
+    st.session_state.meeting_names = meeting_names_df["Meeting"].tolist() if not meeting_names_df.empty else ["First Meeting"]
+
+    # Define default values for remaining state variables (only if not already set)
+    default_states = {
+        # Calendar and announcements
+        "calendar_events": {},
+        "current_calendar_month": (date.today().year, date.today().month),
+        "announcements": [],
+        
+        # Group management
+        "group_members": {f"G{i}": [] for i in range(1,9)} if st.session_state.groups.empty else {},
+        "group_meetings": {f"G{i}": [] for i in range(1,9)} if st.session_state.groups.empty else {},
+        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)} if st.session_state.groups.empty else {},
+        "current_group": None,
+        
+        # Wheel of fortune
+        "wheel_prizes": [
+            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
+            "Café Coupon", "Free Prom Ticket", "200 Credits"
+        ],
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
+        "spinning": False,
+        "winner": None,
+        
+        # Other app state
+        "allocation_count": 0,
+        "group_codes_initialized": False,
+        "initialized": True  # Mark initialization complete
+    }
+
+    # Set defaults only if they don't exist in session state
+    for key, default in default_states.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+
+    # Verify Google Sheets connection status
+    st.session_state.gsheets_connected = sheet is not None
 
 def initialize_group_system():
     """Initialize group system with validation checks"""
@@ -3952,12 +3942,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
