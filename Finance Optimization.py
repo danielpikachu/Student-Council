@@ -335,7 +335,7 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state(sheet=none):
+def initialize_session_state(sheet=None):
     """Initialize all session state variables with defaults"""
     # Core user state
     if "user" not in st.session_state:
@@ -3947,6 +3947,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
