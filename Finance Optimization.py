@@ -452,7 +452,8 @@ def initialize_session_state(sheet=None):
         "sidebar_collapsed": False,
         "calendar_events": {},
         "announcements": [],
-        "reward_data": pd.DataFrame(columns=['Reward', 'Cost', 'Stock'])
+        "reward_data": pd.DataFrame(columns=['Reward', 'Cost', 'Stock']),
+        "spinning": False
     }
 
     for key, default in default_states.items():
@@ -4058,6 +4059,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
