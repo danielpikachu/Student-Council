@@ -335,9 +335,9 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state(sheet=None):
-    """Initialize all required session state variables with defaults"""
-    # Core user state (already exists - keep these)
+def initialize_session_state(sheet=none):
+    """Initialize all session state variables with defaults"""
+    # Core user state
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
@@ -349,29 +349,60 @@ def initialize_session_state(sheet=None):
             columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
         )
     
-    # New: Calendar-related state (fixes the AttributeError)
-    if "calendar_events" not in st.session_state:
-        st.session_state.calendar_events = {}  # Stores events by date string
-    if "current_month" not in st.session_state:
-        st.session_state.current_month = datetime.now().month  # Track active calendar month
-    if "current_year" not in st.session_state:
-        st.session_state.current_year = datetime.now().year  # Track active calendar year
-    
-    # New: Initialization flag (prevents re-initializing data)
-    if "initialized" not in st.session_state:
-        st.session_state.initialized = False
-    
-    # New: Data storage for core features
-    if "groups" not in st.session_state:
-        st.session_state.groups = {}  # Stores group information
-    if "reimbursements" not in st.session_state:
-        st.session_state.reimbursements = []  # Stores reimbursement requests
-    if "group_codes" not in st.session_state:
-        st.session_state.group_codes = {}  # Stores group access codes
-    if "config" not in st.session_state:
-        st.session_state.config = {}  # Stores app configuration
-    if "announcements" not in st.session_state:
-        st.session_state.announcements = []  # Stores system announcements
+    # Define all required state variables with defaults
+    required_states = {
+        # Attendance data
+        "attendance": pd.DataFrame(columns=["Name"]),
+        "council_members": ["Alice", "Bob", "Charlie", "Diana", "Evan"],
+        "meeting_names": ["First Meeting"],
+        
+        # Financial data
+        "scheduled_events": pd.DataFrame(columns=[
+            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
+        ]),
+        "occasional_events": pd.DataFrame(columns=[
+            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+            'Preparation Time', 'Rating'
+        ]),
+        "money_data": pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By']),
+        
+        # Credit and rewards system
+        "credit_data": pd.DataFrame({
+            'Name': ["Alice", "Bob", "Charlie", "Diana", "Evan"],
+            'Total_Credits': [200, 200, 200, 200, 200],
+            'RedeemedCredits': [50, 0, 50, 0, 50]
+        }),
+        "reward_data": pd.DataFrame({
+            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+            'Cost': [50, 30, 80],
+            'Stock': [10, 20, 5]
+        }),
+        "wheel_prizes": [
+            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
+            "Café Coupon", "Free Prom Ticket", "200 Credits"
+        ],
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
+        "spinning": False,
+        "winner": None,
+        
+        # Calendar and announcements
+        "calendar_events": {},
+        "current_calendar_month": (date.today().year, date.today().month),
+        "announcements": [],
+        
+        # Group management
+        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_meetings": {f"G{i}": [] for i in range(1,9)},
+        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
+        "current_group": None,
+        "reimbursements": {"requests": []},  # Reimbursement data
+        
+        # Other app state
+        "allocation_count": 0,
+        "group_codes_initialized": False,
+        "initialized": False
+    }
     
     # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
@@ -3916,6 +3947,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
