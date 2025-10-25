@@ -20,23 +20,40 @@ from datetime import date, datetime
 # Authentication System
 # ------------------------------
 def verify_credentials(username, password):
-    """Verify user credentials against Streamlit Secrets"""
+    """Verify user credentials against BOTH Streamlit Secrets and Google Sheets 'users' tab"""
     try:
-        # Get users from Streamlit secrets
-        users = st.secrets["users"]
+        # 1. Get users from Streamlit Secrets
+        secrets_users = st.secrets.get("users", {})  # Dict of {username: {password, role}}
         
-        # Check if username exists
-        if username not in users:
+        # 2. Get users from Google Sheets (from session state)
+        sheet_users = {}
+        users_df = st.session_state.get("users", pd.DataFrame())
+        if not users_df.empty and all(col in users_df.columns for col in ["username", "password_hash", "role"]):
+            # Convert Google Sheets users to a dict: {username: {password_hash, role}}
+            for _, row in users_df.iterrows():
+                sheet_users[row["username"]] = {
+                    "password_hash": row["password_hash"],
+                    "role": row["role"]
+                }
+        
+        # 3. Combine both user sources into one dict
+        all_users = {**secrets_users,** sheet_users}  # Merges both; sheet users override secrets if usernames clash
+        
+        # 4. Check if username exists in combined list
+        if username not in all_users:
             return False, None
-            
-        # Get stored credentials
-        user_data = users[username]
-        hashed_password = user_data["password"].encode('utf-8')
-        user_role = user_data["role"]
         
-        # Verify password with bcrypt
+        # 5. Verify password
+        user_data = all_users[username]
+        # Secrets use "password" key; sheet uses "password_hash" key
+        hashed_password = user_data.get("password_hash") or user_data.get("password")
+        if not hashed_password:
+            return False, None
+        
+        hashed_password = hashed_password.encode('utf-8')
         if bcrypt.checkpw(password.encode('utf-8'), hashed_password):
-            return True, user_role
+            return True, user_data["role"]
+        
         return False, None
         
     except Exception as e:
@@ -89,6 +106,14 @@ def logout():
     st.success("You have been logged out successfully")
     st.rerun()
 
+# Connect to Google Sheets and initialize
+sheet = connect_gsheets()
+if sheet:
+    initialize_google_sheets(sheet)
+    initialize_session_state(sheet)
+else:
+    st.error("Cannot proceed without Google Sheets connection.")
+    st.stop()
 # ------------------------------
 # Configuration and Constants
 # ------------------------------
@@ -248,6 +273,35 @@ def connect_gsheets():
         st.info("Using local storage only")
         return None
 
+def initialize_google_sheets(sheet):
+    """Initialize all required tabs in Google Sheets"""
+    required_tabs = [
+        "users", "groups", "reimbursements", "group_codes", "config", "app_data",
+        "calendar", "credits", "money_transfers", "group_earnings"
+    ]
+    
+    existing_tabs = [ws.title for ws in sheet.worksheets()]
+    
+    for tab in required_tabs:
+        if tab not in existing_tabs:
+            sheet.add_worksheet(title=tab, rows="1000", cols="20")
+            if tab == "calendar":
+                sheet.worksheet(tab).update([["date", "event", "description", "created_by"]])
+            elif tab == "credits":
+                sheet.worksheet(tab).update([["user", "amount", "type", "date", "status"]])
+            elif tab == "money_transfers":
+                sheet.worksheet(tab).update([["id", "from_user", "to_user", "amount", "date", "notes"]])
+            elif tab == "group_earnings":
+                sheet.worksheet(tab).update([["Amount", "Source", "Date", "Notes", "Recorded By"]])
+
+def save_to_gsheet(sheet, tab, df):
+    """Save a DataFrame to a Google Sheets tab"""
+    try:
+        ws = sheet.worksheet(tab)
+        ws.clear()
+        ws.update([df.columns.values.tolist()] + df.values.tolist())
+    except Exception as e:
+        st.error(f"Failed to save to {tab}: {str(e)}")
 # ------------------------------
 # Backup System
 # ------------------------------
@@ -290,79 +344,46 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state():
-    """Initialize all session state variables with defaults"""
-    # Core user state
+def initialize_session_state(sheet):
+    """Initialize session state with data from Google Sheets"""
+    # Core user state (keep existing)
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
-    if "group_earnings" not in st.session_state:
-        st.session_state.group_earnings = pd.DataFrame(
-            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
-        )
-    
-    # Define all required state variables with defaults
-    required_states = {
-        # Attendance data
-        "attendance": pd.DataFrame(columns=["Name"]),
-        "council_members": ["Alice", "Bob", "Charlie", "Diana", "Evan"],
-        "meeting_names": ["First Meeting"],
-        
-        # Financial data
-        "scheduled_events": pd.DataFrame(columns=[
-            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
-        ]),
-        "occasional_events": pd.DataFrame(columns=[
-            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
-            'Preparation Time', 'Rating'
-        ]),
-        "money_data": pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By']),
-        
-        # Credit and rewards system
-        "credit_data": pd.DataFrame({
-            'Name': ["Alice", "Bob", "Charlie", "Diana", "Evan"],
-            'Total_Credits': [200, 200, 200, 200, 200],
-            'RedeemedCredits': [50, 0, 50, 0, 50]
-        }),
-        "reward_data": pd.DataFrame({
-            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
-            'Cost': [50, 30, 80],
-            'Stock': [10, 20, 5]
-        }),
-        "wheel_prizes": [
-            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
-            "Café Coupon", "Free Prom Ticket", "200 Credits"
-        ],
-        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
-        "spinning": False,
-        "winner": None,
-        
-        # Calendar and announcements
-        "calendar_events": {},
-        "current_calendar_month": (date.today().year, date.today().month),
-        "announcements": [],
-        
-        # Group management
-        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
-        "group_members": {f"G{i}": [] for i in range(1,9)},
-        "group_meetings": {f"G{i}": [] for i in range(1,9)},
-        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
-        "current_group": None,
-        "reimbursements": {"requests": []},  # Reimbursement data
-        
-        # Other app state
-        "allocation_count": 0,
-        "group_codes_initialized": False,
-        "initialized": False
-    }
 
-    # Initialize any missing variables
-    for key, default in required_states.items():
-        if key not in st.session_state:
-            st.session_state[key] = default
+    # Define helper to load data from Google Sheets
+    def load_from_gsheet(tab):
+        try:
+            ws = sheet.worksheet(tab)
+            data = ws.get_all_records()
+            return pd.DataFrame(data) if data else pd.DataFrame(columns=ws.get_all_values()[0])
+        except:
+            return pd.DataFrame()
+
+    # Load all data from Google Sheets
+    if "users" not in st.session_state:
+        st.session_state.users = load_from_gsheet("users")
+    if "groups" not in st.session_state:
+        st.session_state.groups = load_from_gsheet("groups")
+    if "reimbursements" not in st.session_state:
+        st.session_state.reimbursements = load_from_gsheet("reimbursements")
+    if "group_codes" not in st.session_state:
+        st.session_state.group_codes = load_from_gsheet("group_codes")
+    if "config" not in st.session_state:
+        st.session_state.config = load_from_gsheet("config")
+    if "app_data" not in st.session_state:
+        st.session_state.app_data = load_from_gsheet("app_data")
+    if "calendar" not in st.session_state:
+        st.session_state.calendar = load_from_gsheet("calendar")
+    if "credits" not in st.session_state:
+        st.session_state.credits = load_from_gsheet("credits")
+    if "money_transfers" not in st.session_state:
+        st.session_state.money_transfers = load_from_gsheet("money_transfers")
+    if "group_earnings" not in st.session_state:
+        st.session_state.group_earnings = load_from_gsheet("group_earnings")
 
 def initialize_group_system():
     """Initialize group system with validation checks"""
@@ -2668,7 +2689,21 @@ def render_welcome_screen():
 def render_main_app():
     """Render the full application after login"""
     st.title("Student Council Management System")
-    
+    st.sidebar.markdown("---")  # Visual separator
+    if st.sidebar.button("Save All Data"):
+        # Ensure `sheet` is accessible here (pass it to render_main_app or fetch it)
+        # Save all session state data to Google Sheets
+        save_to_gsheet(sheet, "users", st.session_state.users)
+        save_to_gsheet(sheet, "groups", st.session_state.groups)
+        save_to_gsheet(sheet, "reimbursements", st.session_state.reimbursements)
+        save_to_gsheet(sheet, "group_codes", st.session_state.group_codes)
+        save_to_gsheet(sheet, "config", st.session_state.config)
+        save_to_gsheet(sheet, "app_data", st.session_state.app_data)
+        save_to_gsheet(sheet, "calendar", st.session_state.calendar)
+        save_to_gsheet(sheet, "credits", st.session_state.credits)
+        save_to_gsheet(sheet, "money_transfers", st.session_state.money_transfers)
+        save_to_gsheet(sheet, "group_earnings", st.session_state.group_earnings)
+        st.success("All data saved to Google Sheets!")
     # ------------------------------
     # Sidebar with User Info
     # ------------------------------
@@ -3819,3 +3854,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
