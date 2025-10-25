@@ -451,7 +451,8 @@ def initialize_session_state(sheet=None):
         "current_page": "dashboard",  # Basic UI state
         "sidebar_collapsed": False,
         "calendar_events": {},
-        "announcements": []
+        "announcements": [],
+        "reward_data": pd.DataFrame(columns=['Reward', 'Cost', 'Stock'])
     }
 
     for key, default in default_states.items():
@@ -4057,6 +4058,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
