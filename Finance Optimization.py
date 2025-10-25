@@ -265,25 +265,21 @@ def connect_gsheets():
         return None
 
 def initialize_google_sheets(sheet):
-    """Initialize all required tabs in Google Sheets"""
-    required_tabs = [
-        "users", "groups", "reimbursements", "group_codes", "config", "app_data",
-        "calendar", "credits", "money_transfers", "group_earnings"
-    ]
+    """Initialize required worksheets only if they don't exist"""
+    required_tabs = ["users", "groups", "reimbursements", "group_codes", "config", "app_data"]
     
+    # Get list of existing worksheet names
     existing_tabs = [ws.title for ws in sheet.worksheets()]
     
     for tab in required_tabs:
-        if tab not in existing_tabs:
-            sheet.add_worksheet(title=tab, rows="1000", cols="20")
-            if tab == "calendar":
-                sheet.worksheet(tab).update([["date", "event", "description", "created_by"]])
-            elif tab == "credits":
-                sheet.worksheet(tab).update([["user", "amount", "type", "date", "status"]])
-            elif tab == "money_transfers":
-                sheet.worksheet(tab).update([["id", "from_user", "to_user", "amount", "date", "notes"]])
-            elif tab == "group_earnings":
-                sheet.worksheet(tab).update([["Amount", "Source", "Date", "Notes", "Recorded By"]])
+        if tab not in existing_tabs:  # Only create if missing
+            try:
+                sheet.add_worksheet(title=tab, rows="1000", cols="20")
+                st.success(f"Created worksheet: {tab}")
+            except gspread.exceptions.APIError as e:
+                st.error(f"Failed to create {tab}: {str(e)}")
+        else:
+            st.info(f"Worksheet {tab} already exists")
 
 def save_to_gsheet(sheet, tab, df):
     """Save a DataFrame to a Google Sheets tab"""
@@ -3851,5 +3847,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
