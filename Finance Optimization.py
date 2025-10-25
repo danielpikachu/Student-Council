@@ -105,15 +105,6 @@ def logout():
     st.session_state.login_attempts = 0
     st.success("You have been logged out successfully")
     st.rerun()
-
-# Connect to Google Sheets and initialize
-sheet = connect_gsheets()
-if sheet:
-    initialize_google_sheets(sheet)
-    initialize_session_state(sheet)
-else:
-    st.error("Cannot proceed without Google Sheets connection.")
-    st.stop()
 # ------------------------------
 # Configuration and Constants
 # ------------------------------
@@ -1060,8 +1051,6 @@ def authenticate(username, password):
         return False, "Incorrect password"
     return False, "User not found"
 
-
-
 def hash_password(password):
     """Hash a password for secure storage"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1479,7 +1468,15 @@ def delete_group_earning(group_name, entry_index):
     
     except Exception as e:
         return False, f"Error deleting entry: {str(e)}"
-        
+
+# Connect to Google Sheets and initialize
+sheet = connect_gsheets()
+if sheet:
+    initialize_google_sheets(sheet)
+    initialize_session_state(sheet)
+else:
+    st.error("Cannot proceed without Google Sheets connection.")
+    st.stop()
 # ------------------------------
 # UI Components
 # ------------------------------
@@ -3854,4 +3851,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
