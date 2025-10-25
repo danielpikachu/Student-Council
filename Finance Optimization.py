@@ -265,11 +265,13 @@ def connect_gsheets():
         return None
 
 def initialize_google_sheets(sheet):
-    """Create required worksheets only if they don't exist"""
-    required_tabs = ["users", "groups", "reimbursements", "group_codes", "config", "app_data", "calendar", "credits", "money_transfers", "group_earnings"]
-    
+    """Safely create worksheets only if they don't exist"""
     if not sheet:
         return
+        
+    required_tabs = ["users", "groups", "reimbursements", "group_codes", 
+                    "config", "app_data", "calendar", "credits", 
+                    "money_transfers", "group_earnings"]
     
     existing_tabs = [ws.title for ws in sheet.worksheets()]
     
@@ -279,9 +281,9 @@ def initialize_google_sheets(sheet):
                 sheet.add_worksheet(title=tab, rows="1000", cols="20")
                 st.success(f"Created worksheet: {tab}")
             except gspread.exceptions.APIError as e:
-                st.error(f"Failed to create {tab}: {str(e)}")
+                st.warning(f"Worksheet '{tab}' already exists (no action needed)")
         else:
-            st.info(f"Worksheet {tab} already exists (no action needed)")
+            st.info(f"Worksheet '{tab}' already exists (no action needed)")
 
 def save_to_gsheet(sheet, tab, df):
     """Save a DataFrame to a Google Sheets tab"""
@@ -342,6 +344,14 @@ def initialize_session_state(sheet):  # Add 'sheet' parameter here
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
+    if "group_earnings" not in st.session_state:
+        st.session_state.group_earnings = pd.DataFrame(
+            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
+        )
+    
+    # Add this line to track initialization status
+    if "initialized" not in st.session_state:
+        st.session_state.initialized = False  # New flag
     
     # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
@@ -3859,6 +3869,7 @@ def main():
     if sheet:
         initialize_google_sheets(sheet)  # Create missing worksheets first
     initialize_session_state(sheet)  # Then load data
+    st.session_state.initialized = True
     # Initialize files and session state
     initialize_files()
     
@@ -3885,3 +3896,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
