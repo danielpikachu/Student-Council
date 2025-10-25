@@ -370,7 +370,9 @@ def initialize_session_state(sheet=None):
         st.session_state.group_codes = {}  # Stores group access codes
     if "config" not in st.session_state:
         st.session_state.config = {}  # Stores app configuration
-        
+    if "announcements" not in st.session_state:
+        st.session_state.announcements = []  # Stores system announcements
+    
     # Define helper to load data from Google Sheets
     def load_from_gsheet(tab, expected_columns=None):
         try:
@@ -3914,6 +3916,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
