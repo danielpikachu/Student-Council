@@ -279,7 +279,7 @@ def initialize_google_sheets(sheet):
             except gspread.exceptions.APIError as e:
                 st.error(f"Failed to create {tab}: {str(e)}")
         else:
-            st.info(f"Worksheet {tab} already exists")
+            st.info(f"Worksheet {tab} already exists (no action needed)")  # Clearer message
 
 def save_to_gsheet(sheet, tab, df):
     """Save a DataFrame to a Google Sheets tab"""
@@ -332,7 +332,7 @@ def initialize_files():
 # Session State Initialization
 # ------------------------------
 def initialize_session_state(sheet):
-    """Initialize session state with data from Google Sheets"""
+    """Initialize session state with data from Google Sheets (with error handling)"""
     # Core user state (keep existing)
     if "user" not in st.session_state:
         st.session_state.user = None
@@ -341,36 +341,88 @@ def initialize_session_state(sheet):
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
 
-    # Define helper to load data from Google Sheets
-    def load_from_gsheet(tab):
+    # Define helper to load data from Google Sheets with fallback
+    def load_from_gsheet(tab, expected_columns=None):
+        """
+        Load data from a Google Sheet tab with validation
+        :param tab: Worksheet name
+        :param expected_columns: List of expected columns (optional)
+        :return: Validated DataFrame
+        """
         try:
-            ws = sheet.worksheet(tab)
-            data = ws.get_all_records()
-            return pd.DataFrame(data) if data else pd.DataFrame(columns=ws.get_all_values()[0])
-        except:
-            return pd.DataFrame()
+            # Check if sheet exists first
+            if not any(ws.title == tab for ws in sheet.worksheets()):
+                st.warning(f"Worksheet '{tab}' not found. Initializing empty DataFrame.")
+                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
 
-    # Load all data from Google Sheets
+            ws = sheet.worksheet(tab)
+            all_values = ws.get_all_values()
+            
+            # Handle empty worksheet
+            if not all_values:
+                st.info(f"Worksheet '{tab}' is empty. Initializing with expected columns.")
+                return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
+
+            # Get headers and data
+            headers = all_values[0]
+            data = all_values[1:]  # Skip header row
+            
+            # Create DataFrame
+            df = pd.DataFrame(data, columns=headers)
+            
+            # Validate columns if expected columns are provided
+            if expected_columns:
+                missing = set(expected_columns) - set(df.columns)
+                if missing:
+                    st.warning(f"Worksheet '{tab}' missing columns: {missing}. Adding them as empty.")
+                    for col in missing:
+                        df[col] = ""  # Add missing columns with empty values
+            
+            return df
+
+        except gspread.exceptions.APIError as e:
+            st.error(f"API Error loading '{tab}': {str(e)}")
+        except Exception as e:
+            st.error(f"Unexpected error loading '{tab}': {str(e)}")
+        
+        # Fallback: return empty DataFrame with expected columns if specified
+        return pd.DataFrame(columns=expected_columns) if expected_columns else pd.DataFrame()
+
+    # Define expected columns for each worksheet (customize based on your needs)
+    expected_columns = {
+        "users": ["username", "password", "role", "email"],  # Example columns
+        "groups": ["group_id", "name", "leader", "members"],
+        "reimbursements": ["id", "group", "amount", "date", "status"],
+        "group_codes": ["code", "group_id", "is_active"],
+        "config": ["key", "value"],
+        "app_data": ["timestamp", "event", "details"],
+        "calendar": ["date", "event", "location", "group"],
+        "credits": ["user", "amount", "date", "description"],
+        "money_transfers": ["from", "to", "amount", "date", "notes"],
+        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"]  # Critical for your error
+    }
+
+    # Load all data from Google Sheets with validation
     if "users" not in st.session_state:
-        st.session_state.users = load_from_gsheet("users")
+        st.session_state.users = load_from_gsheet("users", expected_columns["users"])
     if "groups" not in st.session_state:
-        st.session_state.groups = load_from_gsheet("groups")
+        st.session_state.groups = load_from_gsheet("groups", expected_columns["groups"])
     if "reimbursements" not in st.session_state:
-        st.session_state.reimbursements = load_from_gsheet("reimbursements")
+        st.session_state.reimbursements = load_from_gsheet("reimbursements", expected_columns["reimbursements"])
     if "group_codes" not in st.session_state:
-        st.session_state.group_codes = load_from_gsheet("group_codes")
+        st.session_state.group_codes = load_from_gsheet("group_codes", expected_columns["group_codes"])
     if "config" not in st.session_state:
-        st.session_state.config = load_from_gsheet("config")
+        st.session_state.config = load_from_gsheet("config", expected_columns["config"])
     if "app_data" not in st.session_state:
-        st.session_state.app_data = load_from_gsheet("app_data")
+        st.session_state.app_data = load_from_gsheet("app_data", expected_columns["app_data"])
     if "calendar" not in st.session_state:
-        st.session_state.calendar = load_from_gsheet("calendar")
+        st.session_state.calendar = load_from_gsheet("calendar", expected_columns["calendar"])
     if "credits" not in st.session_state:
-        st.session_state.credits = load_from_gsheet("credits")
+        st.session_state.credits = load_from_gsheet("credits", expected_columns["credits"])
     if "money_transfers" not in st.session_state:
-        st.session_state.money_transfers = load_from_gsheet("money_transfers")
+        st.session_state.money_transfers = load_from_gsheet("money_transfers", expected_columns["money_transfers"])
     if "group_earnings" not in st.session_state:
-        st.session_state.group_earnings = load_from_gsheet("group_earnings")
+        st.session_state.group_earnings = load_from_gsheet("group_earnings", expected_columns["group_earnings"])
 
 def initialize_group_system():
     """Initialize group system with validation checks"""
@@ -3847,6 +3899,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
