@@ -15,6 +15,130 @@ import requests
 from io import BytesIO, StringIO
 import base64
 from datetime import date, datetime
+import time
+
+# ------------------------------
+# Optimized Google Sheets Utilities (Added for API request reduction)
+# ------------------------------
+def load_all_gsheet_data(sheet):
+    """Load all required data in one batch with throttling to reduce API requests"""
+    if not sheet or "gsheet_worksheets" not in st.session_state:
+        return False
+
+    # Define all worksheets and their expected columns
+    sheets_config = {
+        "users": ["username", "password", "role", "email"],
+        "groups": ["group_id", "name", "leader", "members"],
+        "reimbursements": ["id", "group", "amount", "date", "status"],
+        "group_codes": ["code", "group_id", "is_active"],
+        "config": ["key", "value"],
+        "app_data": ["timestamp", "event", "details"],
+        "calendar": ["date", "event", "location"],
+        "credits": ["user", "amount", "date"],
+        "money_transfers": ["from", "to", "amount", "date"],
+        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"],
+        "attendance": ["Name"],
+        "council_members": ["Name"],
+        "meeting_names": ["Meeting"],
+        "scheduled_events": ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'],
+        "occasional_events": ['Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 'Preparation Time', 'Rating'],
+        "money_data": ['Amount', 'Description', 'Date', 'Handled By'],
+        "credit_data": ['Name', 'Total_Credits', 'RedeemedCredits'],
+        "reward_data": ['Reward', 'Cost', 'Stock']
+    }
+
+    # Load data with delays between requests to avoid rate limits
+    for tab, columns in sheets_config.items():
+        try:
+            tab_lower = tab.lower()
+            # Use cached worksheet reference if available
+            if tab_lower in st.session_state.gsheet_worksheets:
+                ws = st.session_state.gsheet_worksheets[tab_lower]
+                data = ws.get_all_values()  # Single API call per worksheet
+                # Create DataFrame with proper columns
+                df = pd.DataFrame(data[1:], columns=data[0]) if data else pd.DataFrame(columns=columns)
+                st.session_state[tab] = df  # Cache data in session state
+                time.sleep(0.2)  # Throttle to ~5 requests/second
+            else:
+                # Create new worksheet if missing (one-time cost)
+                ws = sheet.add_worksheet(title=tab, rows="100", cols=str(len(columns)))
+                ws.append_row(columns)  # Add header row
+                st.session_state[tab] = pd.DataFrame(columns=columns)
+                st.session_state.gsheet_worksheets[tab_lower] = ws  # Update cache
+                time.sleep(0.5)  # Longer delay after creation
+        except gspread.exceptions.APIError as e:
+            if "429" in str(e):  # Rate limit error
+                st.warning(f"Rate limited. Waiting before loading {tab}...")
+                time.sleep(5)  # Longer pause if quota hit
+            else:
+                st.error(f"Error loading {tab}: {str(e)}")
+    return True
+
+
+def save_batch_data(sheet, updates):
+    """
+    Save multiple worksheet updates in one API call to minimize requests
+    updates format: [{"worksheet": "tab_name", "data": dataframe}, ...]
+    """
+    if not sheet or not updates:
+        return False, "No data to save"
+
+    try:
+        requests = []
+        for update in updates:
+            tab = update["worksheet"]
+            df = update["data"]
+            tab_lower = tab.lower()
+            
+            if tab_lower not in st.session_state.gsheet_worksheets:
+                continue  # Skip if worksheet doesn't exist
+            
+            ws = st.session_state.gsheet_worksheets[tab_lower]
+            # Prepare data with headers
+            data = [df.columns.tolist()] + df.values.tolist()
+            
+            # Create batch update request
+            requests.append({
+                "updateCells": {
+                    "range": {
+                        "sheetId": ws.id,
+                        "startRowIndex": 0,
+                        "startColumnIndex": 0
+                    },
+                    "rows": [
+                        {"values": [{"userEnteredValue": {"stringValue": str(cell)}} for cell in row]} 
+                        for row in data
+                    ],
+                    "fields": "userEnteredValue"
+                }
+            })
+        
+        # Execute all requests in one API call
+        if requests:
+            sheet.batch_update({"requests": requests})
+        return True, "Data saved successfully"
+    except Exception as e:
+        return False, f"Batch save failed: {str(e)}"
+
+
+def load_worksheet_on_demand(sheet, tab, columns):
+    """Lazy load worksheet data only when needed (caches results)"""
+    # Return cached data if already loaded
+    if tab in st.session_state:
+        return st.session_state[tab]
+
+    if not sheet or "gsheet_worksheets" not in st.session_state:
+        return pd.DataFrame(columns=columns)
+
+    tab_lower = tab.lower()
+    if tab_lower in st.session_state.gsheet_worksheets:
+        ws = st.session_state.gsheet_worksheets[tab_lower]
+        data = ws.get_all_values()
+        # Create DataFrame with headers
+        df = pd.DataFrame(data[1:], columns=data[0]) if data else pd.DataFrame(columns=columns)
+        st.session_state[tab] = df  # Cache for future use
+        return df
+    return pd.DataFrame(columns=columns)
 
 # ------------------------------
 # Authentication System
@@ -256,6 +380,12 @@ def connect_gsheets():
         
         # Open the spreadsheet
         sheet = client.open_by_key(spreadsheet_id)
+        
+        # Cache worksheet titles once (critical optimization)
+        st.session_state.gsheet_worksheets = {
+            ws.title.lower(): ws for ws in sheet.worksheets()
+        }  # Lowercase for case-insensitive checks
+        
         st.success("Successfully connected to Google Sheets!")
         return sheet
         
@@ -344,6 +474,35 @@ def initialize_session_state(sheet=None):
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
+    # ------------------------------
+    # Google Sheets Caching State
+    # ------------------------------
+    if "gsheet_worksheets" not in st.session_state:
+        st.session_state.gsheet_worksheets = {}  # New: Caches worksheet references
+    if "sheet" not in st.session_state:
+        st.session_state.sheet = None  # New: Stores Google Sheets connection
+
+    # ------------------------------
+    # Financial/Data State
+    # ------------------------------
+    if "group_earnings" not in st.session_state:
+        st.session_state.group_earnings = pd.DataFrame(
+            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
+        )  # Existing: Earnings data
+    if "reimbursements" not in st.session_state:
+        st.session_state.reimbursements = pd.DataFrame(
+            columns=["ID", "Group", "Amount", "Date", "Status"]
+        )  # New: Tracks reimbursements
+    if "total_budget" not in st.session_state:
+        st.session_state.total_budget = 0.0  # New: Tracks overall budget
+
+    # ------------------------------
+    # UI/Navigation State
+    # ------------------------------
+    if "current_page" not in st.session_state:
+        st.session_state.current_page = "dashboard"  # New: Tracks active page
+    if "sidebar_collapsed" not in st.session_state:
+        st.session_state.sidebar_collapsed = False  # New: Tracks sidebar state
 
     # Helper function with proper worksheet existence check
     def load_from_gsheet(tab, expected_columns):
@@ -3942,4 +4101,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
