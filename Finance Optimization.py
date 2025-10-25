@@ -450,7 +450,8 @@ def initialize_session_state(sheet=None):
         "gsheets_connected": True,
         "current_page": "dashboard",  # Basic UI state
         "sidebar_collapsed": False,
-        "calendar_events": {}
+        "calendar_events": {},
+        "announcements": []
     }
 
     for key, default in default_states.items():
@@ -4056,6 +4057,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
