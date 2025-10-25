@@ -449,7 +449,7 @@ def initialize_session_state(sheet=None):
         "initialized": True,
         "gsheets_connected": True,
         "current_page": "dashboard",  # Basic UI state
-        "sidebar_collapsed": False
+        "sidebar_collapsed": False,
         "calendar_events": {}
     }
 
@@ -4056,6 +4056,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
