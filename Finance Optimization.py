@@ -1399,7 +1399,7 @@ def save_data(sheet=None):
                 for col in money_df.columns:
                     if pd.api.types.is_datetime64_any_dtype(money_df[col]):
                         money_df[col] = money_df[col].dt.isoformat()
-                for col in money_df.columns:
+               
                     if pd.api.types.is_numeric_dtype(money_df[col]):
                         # 数值列（如Amount）的NaN替换为0
                         money_df[col] = money_df[col].fillna(0)
@@ -1410,17 +1410,27 @@ def save_data(sheet=None):
                 # Get or create "MoneyTransfers" worksheet
                 try:
                     money_ws = sheet.worksheet("MoneyTransfers")
-                except:
-                    money_ws = sheet.add_worksheet(title="MoneyTransfers", rows="1000", cols="4")
-                    money_ws.append_row(["Amount", "Description", "Date", "Handled By"])
-        
+                    existing_headers = money_ws.row_values(1)  # 获取第一行表头
+                    if existing_headers != money_df.columns.tolist():
+                       money_ws.update_row(1, money_df.columns.tolist())  # 更新表头
+                except gspread.exceptions.WorksheetNotFound:
+                     money_ws = sheet.add_worksheet(
+                     title="MoneyTransfers",
+                     rows="1000",
+                     cols=len(money_df.columns)  # 动态列数
+                     )
+                     money_ws.append_row(money_df.columns.tolist())  # 添加表头
+                except Exception as e:
+                st.warning(f"获取MoneyTransfers工作表失败: {str(e)}")
+                continue  # 跳过同步，避免崩溃
                 # Clear existing data (keep header)
-                if len(money_ws.get_all_values()) > 1:
-                    money_ws.delete_rows(2, len(money_ws.get_all_values()))
-        
-                # Convert DataFrame to list of rows (使用处理后的DataFrame)
-                money_data = [money_df.columns.tolist()] + money_df.values.tolist()
-                money_ws.update(money_data)
+                existing_rows = money_ws.get_all_values()
+                if len(existing_rows) > 1:
+                # 从第2行删除到最后一行（更可靠的写法）
+                   money_ws.delete_rows(2, len(existing_rows))
+                money_data = money_df.values.tolist() 
+                if money_data:  # 确保有数据再同步
+                   money_ws.append_rows(money_data) 
                 st.success("Money transfers synced to Google Sheets")
             except Exception as e:
                 st.warning(f"Money transfers sync failed: {str(e)}")
@@ -3881,6 +3891,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
