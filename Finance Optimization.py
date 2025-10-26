@@ -1218,6 +1218,54 @@ def load_data(sheet):
             credit_sheet = sheet.worksheet("Credits")
             credit_data = credit_sheet.get_all_records()
             st.session_state.credit_data = pd.DataFrame(credit_data)
+
+            #Load Calendar data
+             try:
+                calendar_sheet = sheet.worksheet("Calendar")
+                calendar_data = calendar_sheet.get_all_records()  # 读取所有日历记录
+                # 转换为session_state.calendar_events需要的格式：{日期: 事件描述}
+                st.session_state.calendar_events = {
+                    row["Date"]: row["Event"] 
+                    for row in calendar_data 
+                    if row.get("Date") and row.get("Event")  # 过滤空值
+                }
+            except gspread.exceptions.WorksheetNotFound:
+                # 若工作表不存在，初始化空字典（避免报错）
+                st.session_state.calendar_events = {}
+            except Exception as e:
+                st.warning(f"Error loading calendar from Sheets: {str(e)}")
+
+            #Load Group data
+            try:
+    groups_sheet = sheet.worksheet("Groups")
+    groups_data = groups_sheet.get_all_records()
+    # 恢复分组成员数据（示例：根据实际存储格式调整）
+    st.session_state.group_members = {}
+    st.session_state.group_earnings = {}
+    for row in groups_data:
+        group_name = row["Group Name"]
+        # 恢复成员（逗号分隔字符串转列表）
+        st.session_state.group_members[group_name] = row["Members"].split(", ") if row["Members"] else []
+        # 收益数据需根据实际存储格式解析（此处为示例）
+        st.session_state.group_earnings[group_name] = []  # 实际场景需从表格读取具体条目
+except gspread.exceptions.WorksheetNotFound:
+    st.warning("Groups worksheet not found, using local data")
+except Exception as e:
+    st.warning(f"Error loading groups from Sheets: {str(e)}")
+
+#Load Money transfers data
+try:
+    money_sheet = sheet.worksheet("MoneyTransfers")
+    money_data = money_sheet.get_all_records()
+    # 转换为DataFrame（与本地存储格式一致）
+    st.session_state.money_data = pd.DataFrame(money_data)
+    # 确保日期列格式正确
+    if "Date" in st.session_state.money_data.columns:
+        st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"])
+except gspread.exceptions.WorksheetNotFound:
+    st.warning("MoneyTransfers worksheet not found, using local data")
+except Exception as e:
+    st.warning(f"Error loading money transfers from Sheets: {str(e)}")
             
             return True, "Data loaded from Google Sheets"
         
@@ -3819,4 +3867,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
