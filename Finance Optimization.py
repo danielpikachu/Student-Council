@@ -1243,11 +1243,11 @@ def load_data(sheet):
                 st.session_state.group_members = {}
                 st.session_state.group_earnings = {}
                 for row in groups_data:
-                group_name = row["Group Name"]
-                # 恢复成员（逗号分隔字符串转列表）
-                st.session_state.group_members[group_name] = row["Members"].split(", ") if row["Members"] else []
-                # 收益数据需根据实际存储格式解析（此处为示例）
-                st.session_state.group_earnings[group_name] = []  # 实际场景需从表格读取具体条目
+                    group_name = row["Group Name"]
+                    # 恢复成员（逗号分隔字符串转列表）
+                    st.session_state.group_members[group_name] = row["Members"].split(", ") if row["Members"] else []
+                    # 收益数据需根据实际存储格式解析（此处为示例）
+                    st.session_state.group_earnings[group_name] = []  # 实际场景需从表格读取具体条目
            except gspread.exceptions.WorksheetNotFound:
                st.warning("Groups worksheet not found, using local data")
            except Exception as e:
@@ -3867,6 +3867,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
