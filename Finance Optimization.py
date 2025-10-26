@@ -3780,7 +3780,7 @@ def render_main_app():
                 new_transaction = pd.DataFrame({
                     'Amount': [amount],
                     'Description': [description],
-                    'Date': [transaction_date.strftime("%Y-%m-%d")],
+                    'Date': [pd.to_datetime(transaction_date)],
                     'Handled By': [handled_by]
                 })
                 
@@ -3795,6 +3795,7 @@ def render_main_app():
                     success, msg = save_data(sheet)
                     if success:
                         st.success("Transaction recorded and synced to Google Sheets!")
+                        st.experimental_rerun()
                     else:
                         st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
@@ -3802,6 +3803,7 @@ def render_main_app():
                     success, msg = save_data()  # Save without Sheets
                     if success:
                         st.warning("Transaction saved locally (Google Sheets connection failed)")
+                        st.experimental_rerun()
                     else:
                         st.error(f"Failed to save transaction: {msg}")
             
@@ -3891,6 +3893,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
