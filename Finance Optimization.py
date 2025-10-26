@@ -15,46 +15,28 @@ import requests
 from io import BytesIO, StringIO
 import base64
 from datetime import date, datetime
-import time
 
 # ------------------------------
 # Authentication System
 # ------------------------------
 def verify_credentials(username, password):
-    """Verify user credentials against BOTH Streamlit Secrets and Google Sheets 'users' tab"""
+    """Verify user credentials against Streamlit Secrets"""
     try:
-        # 1. Get users from Streamlit Secrets
-        secrets_users = st.secrets.get("users", {})  # Dict of {username: {password, role}}
+        # Get users from Streamlit secrets
+        users = st.secrets["users"]
         
-        # 2. Get users from Google Sheets (from session state)
-        sheet_users = {}
-        users_df = st.session_state.get("users", pd.DataFrame())
-        if not users_df.empty and all(col in users_df.columns for col in ["username", "password_hash", "role"]):
-            # Convert Google Sheets users to a dict: {username: {password_hash, role}}
-            for _, row in users_df.iterrows():
-                sheet_users[row["username"]] = {
-                    "password_hash": row["password_hash"],
-                    "role": row["role"]
-                }
-        
-        # 3. Combine both user sources into one dict
-        all_users = {**secrets_users,** sheet_users}  # Merges both; sheet users override secrets if usernames clash
-        
-        # 4. Check if username exists in combined list
-        if username not in all_users:
+        # Check if username exists
+        if username not in users:
             return False, None
+            
+        # Get stored credentials
+        user_data = users[username]
+        hashed_password = user_data["password"].encode('utf-8')
+        user_role = user_data["role"]
         
-        # 5. Verify password
-        user_data = all_users[username]
-        # Secrets use "password" key; sheet uses "password_hash" key
-        hashed_password = user_data.get("password_hash") or user_data.get("password")
-        if not hashed_password:
-            return False, None
-        
-        hashed_password = hashed_password.encode('utf-8')
+        # Verify password with bcrypt
         if bcrypt.checkpw(password.encode('utf-8'), hashed_password):
-            return True, user_data["role"]
-        
+            return True, user_role
         return False, None
         
     except Exception as e:
@@ -106,6 +88,7 @@ def logout():
     st.session_state.login_attempts = 0
     st.success("You have been logged out successfully")
     st.rerun()
+
 # ------------------------------
 # Configuration and Constants
 # ------------------------------
@@ -257,12 +240,6 @@ def connect_gsheets():
         
         # Open the spreadsheet
         sheet = client.open_by_key(spreadsheet_id)
-        
-        # Cache worksheet titles once (critical optimization)
-        st.session_state.gsheet_worksheets = {
-            ws.title.lower(): ws for ws in sheet.worksheets()
-        }  # Lowercase for case-insensitive checks
-        
         st.success("Successfully connected to Google Sheets!")
         return sheet
         
@@ -271,35 +248,6 @@ def connect_gsheets():
         st.info("Using local storage only")
         return None
 
-def initialize_google_sheets(sheet):
-    """Safely create worksheets only if they don't exist"""
-    if not sheet:
-        return
-        
-    required_tabs = ["users", "groups", "reimbursements", "group_codes", 
-                    "config", "app_data", "calendar", "credits", 
-                    "money_transfers", "group_earnings"]
-    
-    existing_tabs = [ws.title for ws in sheet.worksheets()]
-    
-    for tab in required_tabs:
-        if tab not in existing_tabs:
-            try:
-                sheet.add_worksheet(title=tab, rows="1000", cols="20")
-                st.success(f"Created worksheet: {tab}")
-            except gspread.exceptions.APIError as e:
-                st.warning(f"Worksheet '{tab}' already exists (no action needed)")
-        else:
-            st.info(f"Worksheet '{tab}' already exists (no action needed)")
-
-def save_to_gsheet(sheet, tab, df):
-    """Save a DataFrame to a Google Sheets tab"""
-    try:
-        ws = sheet.worksheet(tab)
-        ws.clear()
-        ws.update([df.columns.values.tolist()] + df.values.tolist())
-    except Exception as e:
-        st.error(f"Failed to save to {tab}: {str(e)}")
 # ------------------------------
 # Backup System
 # ------------------------------
@@ -342,121 +290,77 @@ def initialize_files():
 # ------------------------------
 # Session State Initialization
 # ------------------------------
-def initialize_session_state(sheet=None):
-    """Initialize ONLY required tabs: groups, calendar, attendance, credits, group_earnings, group_members, money_transfers"""
-    # ------------------------------
-    # Core State Initialization
-    # ------------------------------
-    # User auth
+def initialize_session_state():
+    """Initialize all session state variables with defaults"""
+    # Core user state
     if "user" not in st.session_state:
         st.session_state.user = None
     if "role" not in st.session_state:
         st.session_state.role = None
     if "login_attempts" not in st.session_state:
         st.session_state.login_attempts = 0
-
-    # Google Sheets caching
-    if "gsheet_worksheets" not in st.session_state:
-        st.session_state.gsheet_worksheets = {}  # Cache worksheet references
-    if "sheet" not in st.session_state:
-        st.session_state.sheet = sheet  # Store connection
-
-    # ------------------------------
-    # Exit early if no sheet connection
-    # ------------------------------
-    if not sheet:
-        st.info("No Google Sheets connection. Using defaults.")
-        return
-
-    # ------------------------------
-    # Cache worksheet references once (critical for reducing API calls)
-    # ------------------------------
-    if not st.session_state.gsheet_worksheets:
-        st.session_state.gsheet_worksheets = {
-            ws.title.lower(): ws for ws in sheet.worksheets()
-        }
-
-    # ------------------------------
-    # Helper: Load data for required tabs
-    # ------------------------------
-    def load_from_gsheet(tab, expected_columns):
-        tab_lower = tab.lower()
-        if tab_lower in st.session_state.gsheet_worksheets:
-            ws = st.session_state.gsheet_worksheets[tab_lower]
-            try:
-                # Retry logic for quota limits
-                for attempt in range(3):
-                    try:
-                        all_values = ws.get_all_values()  # Single API call per tab
-                        break
-                    except gspread.exceptions.APIError as e:
-                        if "429" in str(e) and attempt < 2:
-                            st.warning(f"Quota hit loading {tab}. Retrying...")
-                            time.sleep(2** attempt)  # Exponential backoff
-                        else:
-                            raise e
-                # Process data
-                if not all_values:  # Empty worksheet
-                    return pd.DataFrame(columns=expected_columns)
-                headers, data = all_values[0], all_values[1:] if len(all_values) > 1 else []
-                df = pd.DataFrame(data, columns=headers)
-                # Add missing columns (if any)
-                for col in expected_columns:
-                    if col not in df.columns:
-                        df[col] = ""
-                return df
-            except Exception as e:
-                st.error(f"Error loading {tab}: {str(e)}")
-                return pd.DataFrame(columns=expected_columns)
-        else:
-            # Create missing worksheet with headers (one-time API call)
-            try:
-                st.info(f"Creating missing worksheet: {tab}")
-                ws = sheet.add_worksheet(title=tab, rows="100", cols=str(len(expected_columns)))
-                ws.append_row(expected_columns)  # Add headers
-                st.session_state.gsheet_worksheets[tab_lower] = ws  # Update cache
-                return pd.DataFrame(columns=expected_columns)
-            except Exception as e:
-                st.error(f"Failed to create {tab}: {str(e)}")
-                return pd.DataFrame(columns=expected_columns)
-
-    # ------------------------------
-    # Define ONLY required tabs and their columns
-    # ------------------------------
-    required_tabs = {
-        "groups": ["group_id", "name", "leader", "members"],  # Groups tab
-        "calendar": ["date", "event", "location"],            # Calendar tab
-        "attendance": ["Name"],                               # Attendance tab
-        "credits": ["user", "amount", "date"],                # Credits tab
-        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"],  # Group earnings tab
-        "group_members": ["group_id", "member_name", "role"], # Group members tab (adjust columns as needed)
-        "money_transfers": ["from", "to", "amount", "date", "notes"]  # Money transfers tab
-    }
-
-    # ------------------------------
-    # Load ONLY required tabs (with throttling)
-    # ------------------------------
-    import time  # For throttling
-    for tab, columns in required_tabs.items():
-        if tab not in st.session_state:  # Load only if not already in session state
-            st.session_state[tab] = load_from_gsheet(tab, columns)
-            time.sleep(0.5)  # Throttle to avoid hitting quota limits
-
-    # ------------------------------
-    # Minimal defaults for app functionality
-    # ------------------------------
-    default_states = {
-        "initialized": True,
-        "gsheets_connected": True,
-        "current_page": "dashboard",  # Basic UI state
-        "sidebar_collapsed": False,
+    if "group_earnings" not in st.session_state:
+        st.session_state.group_earnings = pd.DataFrame(
+            columns=["Amount", "Source", "Date", "Notes", "Recorded By"]
+        )
+    
+    # Define all required state variables with defaults
+    required_states = {
+        # Attendance data
+        "attendance": pd.DataFrame(columns=["Name"]),
+        "council_members": ["Alice", "Bob", "Charlie", "Diana", "Evan"],
+        "meeting_names": ["First Meeting"],
+        
+        # Financial data
+        "scheduled_events": pd.DataFrame(columns=[
+            'Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'
+        ]),
+        "occasional_events": pd.DataFrame(columns=[
+            'Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 
+            'Preparation Time', 'Rating'
+        ]),
+        "money_data": pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By']),
+        
+        # Credit and rewards system
+        "credit_data": pd.DataFrame({
+            'Name': ["Alice", "Bob", "Charlie", "Diana", "Evan"],
+            'Total_Credits': [200, 200, 200, 200, 200],
+            'RedeemedCredits': [50, 0, 50, 0, 50]
+        }),
+        "reward_data": pd.DataFrame({
+            'Reward': ['Bubble Tea', 'Chips', 'Café Coupon'],
+            'Cost': [50, 30, 80],
+            'Stock': [10, 20, 5]
+        }),
+        "wheel_prizes": [
+            "50 Credits", "Bubble Tea", "Chips", "100 Credits", 
+            "Café Coupon", "Free Prom Ticket", "200 Credits"
+        ],
+        "wheel_colors": plt.cm.tab10(np.linspace(0, 1, 7)),
+        "spinning": False,
+        "winner": None,
+        
+        # Calendar and announcements
         "calendar_events": {},
+        "current_calendar_month": (date.today().year, date.today().month),
         "announcements": [],
-        "reward_data": pd.DataFrame(columns=['Reward', 'Cost', 'Stock']),
-        "spinning": False
+        
+        # Group management
+        "groups": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8"],
+        "group_members": {f"G{i}": [] for i in range(1,9)},
+        "group_meetings": {f"G{i}": [] for i in range(1,9)},
+        "group_descriptions": {f"G{i}": f"Default group {i}" for i in range(1,9)},
+        "current_group": None,
+        "reimbursements": {"requests": []},  # Reimbursement data
+        
+        # Other app state
+        "allocation_count": 0,
+        "group_codes_initialized": False,
+        "initialized": False
     }
 
-    for key, default in default_states.items():
+    # Initialize any missing variables
+    for key, default in required_states.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
@@ -489,129 +393,6 @@ def initialize_group_system():
         return True, "Group system initialized successfully"
     except Exception as e:
         return False, f"Error initializing group system: {str(e)}"
-
-# ------------------------------
-# Optimized Google Sheets Utilities (Added for API request reduction)
-# ------------------------------
-def load_all_gsheet_data(sheet):
-    """Load all required data in one batch with throttling to reduce API requests"""
-    if not sheet or "gsheet_worksheets" not in st.session_state:
-        return False
-
-    # Define all worksheets and their expected columns
-    sheets_config = {
-        "users": ["username", "password", "role", "email"],
-        "groups": ["group_id", "name", "leader", "members"],
-        "reimbursements": ["id", "group", "amount", "date", "status"],
-        "group_codes": ["code", "group_id", "is_active"],
-        "config": ["key", "value"],
-        "app_data": ["timestamp", "event", "details"],
-        "calendar": ["date", "event", "location"],
-        "credits": ["user", "amount", "date"],
-        "money_transfers": ["from", "to", "amount", "date"],
-        "group_earnings": ["Amount", "Source", "Date", "Notes", "Recorded By"],
-        "attendance": ["Name"],
-        "council_members": ["Name"],
-        "meeting_names": ["Meeting"],
-        "scheduled_events": ['Event Name', 'Funds Per Event', 'Frequency Per Month', 'Total Funds'],
-        "occasional_events": ['Event Name', 'Total Funds Raised', 'Cost', 'Staff Many Or Not', 'Preparation Time', 'Rating'],
-        "money_data": ['Amount', 'Description', 'Date', 'Handled By'],
-        "credit_data": ['Name', 'Total_Credits', 'RedeemedCredits'],
-        "reward_data": ['Reward', 'Cost', 'Stock']
-    }
-
-    # Load data with delays between requests to avoid rate limits
-    for tab, columns in sheets_config.items():
-        try:
-            tab_lower = tab.lower()
-            # Use cached worksheet reference if available
-            if tab_lower in st.session_state.gsheet_worksheets:
-                ws = st.session_state.gsheet_worksheets[tab_lower]
-                data = ws.get_all_values()  # Single API call per worksheet
-                # Create DataFrame with proper columns
-                df = pd.DataFrame(data[1:], columns=data[0]) if data else pd.DataFrame(columns=columns)
-                st.session_state[tab] = df  # Cache data in session state
-                time.sleep(0.2)  # Throttle to ~5 requests/second
-            else:
-                # Create new worksheet if missing (one-time cost)
-                ws = sheet.add_worksheet(title=tab, rows="100", cols=str(len(columns)))
-                ws.append_row(columns)  # Add header row
-                st.session_state[tab] = pd.DataFrame(columns=columns)
-                st.session_state.gsheet_worksheets[tab_lower] = ws  # Update cache
-                time.sleep(0.5)  # Longer delay after creation
-        except gspread.exceptions.APIError as e:
-            if "429" in str(e):  # Rate limit error
-                st.warning(f"Rate limited. Waiting before loading {tab}...")
-                time.sleep(5)  # Longer pause if quota hit
-            else:
-                st.error(f"Error loading {tab}: {str(e)}")
-    return True
-
-
-def save_batch_data(sheet, updates):
-    """
-    Save multiple worksheet updates in one API call to minimize requests
-    updates format: [{"worksheet": "tab_name", "data": dataframe}, ...]
-    """
-    if not sheet or not updates:
-        return False, "No data to save"
-
-    try:
-        requests = []
-        for update in updates:
-            tab = update["worksheet"]
-            df = update["data"]
-            tab_lower = tab.lower()
-            
-            if tab_lower not in st.session_state.gsheet_worksheets:
-                continue  # Skip if worksheet doesn't exist
-            
-            ws = st.session_state.gsheet_worksheets[tab_lower]
-            # Prepare data with headers
-            data = [df.columns.tolist()] + df.values.tolist()
-            
-            # Create batch update request
-            requests.append({
-                "updateCells": {
-                    "range": {
-                        "sheetId": ws.id,
-                        "startRowIndex": 0,
-                        "startColumnIndex": 0
-                    },
-                    "rows": [
-                        {"values": [{"userEnteredValue": {"stringValue": str(cell)}} for cell in row]} 
-                        for row in data
-                    ],
-                    "fields": "userEnteredValue"
-                }
-            })
-        
-        # Execute all requests in one API call
-        if requests:
-            sheet.batch_update({"requests": requests})
-        return True, "Data saved successfully"
-    except Exception as e:
-        return False, f"Batch save failed: {str(e)}"
-
-
-def load_worksheet_on_demand(sheet, tab, columns):
-    """Lazy load worksheet data only when needed (caches results)"""
-    # Return cached data if already loaded
-    if tab in st.session_state:
-        return st.session_state[tab]
-
-    if not sheet or "gsheet_worksheets" not in st.session_state:
-        return pd.DataFrame(columns=columns)
-
-    tab_lower = tab.lower()
-    if tab_lower in st.session_state.gsheet_worksheets:
-        ws = st.session_state.gsheet_worksheets[tab_lower]
-        data = ws.get_all_values()
-        # Create DataFrame with headers
-        df = pd.DataFrame(data[1:], columns=data[0]) if data else pd.DataFrame(columns=columns)
-        st.session_state[tab] = df  # Cache for future use
-        return df
-    return pd.DataFrame(columns=columns)
 
 # ------------------------------
 # Import Members from GitHub Excel File
@@ -1258,6 +1039,8 @@ def authenticate(username, password):
         return False, "Incorrect password"
     return False, "User not found"
 
+
+
 def hash_password(password):
     """Hash a password for secure storage"""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
@@ -1675,15 +1458,7 @@ def delete_group_earning(group_name, entry_index):
     
     except Exception as e:
         return False, f"Error deleting entry: {str(e)}"
-
-# Connect to Google Sheets and initialize
-sheet = connect_gsheets()
-if sheet:
-    initialize_google_sheets(sheet)
-    initialize_session_state(sheet)
-else:
-    st.error("Cannot proceed without Google Sheets connection.")
-    st.stop()
+        
 # ------------------------------
 # UI Components
 # ------------------------------
@@ -2893,21 +2668,7 @@ def render_welcome_screen():
 def render_main_app():
     """Render the full application after login"""
     st.title("Student Council Management System")
-    st.sidebar.markdown("---")  # Visual separator
-    if st.sidebar.button("Save All Data"):
-        # Ensure `sheet` is accessible here (pass it to render_main_app or fetch it)
-        # Save all session state data to Google Sheets
-        save_to_gsheet(sheet, "users", st.session_state.users)
-        save_to_gsheet(sheet, "groups", st.session_state.groups)
-        save_to_gsheet(sheet, "reimbursements", st.session_state.reimbursements)
-        save_to_gsheet(sheet, "group_codes", st.session_state.group_codes)
-        save_to_gsheet(sheet, "config", st.session_state.config)
-        save_to_gsheet(sheet, "app_data", st.session_state.app_data)
-        save_to_gsheet(sheet, "calendar", st.session_state.calendar)
-        save_to_gsheet(sheet, "credits", st.session_state.credits)
-        save_to_gsheet(sheet, "money_transfers", st.session_state.money_transfers)
-        save_to_gsheet(sheet, "group_earnings", st.session_state.group_earnings)
-        st.success("All data saved to Google Sheets!")
+    
     # ------------------------------
     # Sidebar with User Info
     # ------------------------------
@@ -4028,16 +3789,15 @@ if 'money_data' not in st.session_state or st.session_state.money_data.empty:
 # Main Application Flow
 # ------------------------------
 def main():
-    sheet = connect_gsheets()
-    if sheet:
-        initialize_google_sheets(sheet)  # Create missing worksheets first
-    initialize_session_state(sheet)  # Then load data
-    st.session_state.initialized = True
     # Initialize files and session state
     initialize_files()
+    initialize_session_state()
     
     # Load group data
     load_groups_data()
+    
+    # Connect to Google Sheets
+    sheet = connect_gsheets()
     
     # Load application data if not initialized
     if not st.session_state.initialized:
@@ -4059,12 +3819,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
 
