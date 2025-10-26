@@ -1218,63 +1218,6 @@ def load_data(sheet):
             credit_sheet = sheet.worksheet("Credits")
             credit_data = credit_sheet.get_all_records()
             st.session_state.credit_data = pd.DataFrame(credit_data)
-
-            #Load Calendar data
-            try:
-                calendar_sheet = sheet.worksheet("Calendar")
-                calendar_data = calendar_sheet.get_all_records()  # 读取所有日历记录
-                # 转换为session_state.calendar_events需要的格式：{日期: 事件描述}
-                st.session_state.calendar_events = {
-                    row["Date"]: row["Event"] 
-                    for row in calendar_data 
-                    if row.get("Date") and row.get("Event")  # 过滤空值
-                }
-            except gspread.exceptions.WorksheetNotFound:
-                # 若工作表不存在，初始化空字典（避免报错）
-                st.session_state.calendar_events = {}
-            except Exception as e:
-                st.warning(f"Error loading calendar from Sheets: {str(e)}")
-
-            #Load Group data
-            try:
-                groups_sheet = sheet.worksheet("Groups")
-                groups_data = groups_sheet.get_all_records()
-                # 恢复分组成员数据（示例：根据实际存储格式调整）
-                st.session_state.group_members = {}
-                st.session_state.group_earnings = {}
-                for row in groups_data:
-                    group_name = row["Group Name"]
-                    # 恢复成员（逗号分隔字符串转列表）
-                    st.session_state.group_members[group_name] = row["Members"].split(", ") if row["Members"] else []
-                    # 收益数据需根据实际存储格式解析（此处为示例）
-                    st.session_state.group_earnings[group_name] = []  # 实际场景需从表格读取具体条目
-            except gspread.exceptions.WorksheetNotFound:
-                st.warning("Groups worksheet not found, using local data")
-            except Exception as e:
-                st.warning(f"Error loading groups from Sheets: {str(e)}")
-
-            #Load Money transfers data
-            try:
-                money_sheet = sheet.worksheet("MoneyTransfers")
-                money_data = money_sheet.get_all_records()
-                if money_data:
-                   st.session_state.money_data = pd.DataFrame(money_data)
-                # 强制日期列格式为datetime
-                   if "Date" in st.session_state.money_data.columns:
-                    # 处理ISO格式字符串转换
-                       st.session_state.money_data["Date"] = pd.to_datetime(
-                          st.session_state.money_data["Date"],
-                          errors='coerce'  # 无法转换的设为NaT
-                       )
-                   st.success("资金转账数据从Google Sheets加载成功")
-                else:
-                   if 'money_data' not in st.session_state: 
-                       st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
-            except gspread.exceptions.WorksheetNotFound:
-              st.warning("MoneyTransfers工作表不存在，使用本地数据")
-            except Exception as e:
-              st.warning(f"从Sheets加载资金转账数据失败: {str(e)}")
-                
             
             return True, "Data loaded from Google Sheets"
         
@@ -1401,46 +1344,22 @@ def save_data(sheet=None):
             # 3. Money Transfers Sync
             try:
                 if "money_data" in st.session_state and not st.session_state.money_data.empty:
-                # 复制数据以避免修改原始数据
-                    money_df = st.session_state.money_data.copy()
-        
-                # 将所有Timestamp类型转换为ISO格式字符串
-                for col in money_df.columns:
-                    if pd.api.types.is_datetime64_any_dtype(money_df[col]):
-                        money_df[col] = money_df[col].dt.isoformat()
-               
-                    if pd.api.types.is_numeric_dtype(money_df[col]):
-                        # 数值列（如Amount）的NaN替换为0
-                        money_df[col] = money_df[col].fillna(0)
-                    else:
-                        # 字符串列（如Description）的NaN替换为空字符串
-                        money_df[col] = money_df[col].fillna("")
-        
-                # Get or create "MoneyTransfers" worksheet
-                try:
-                    money_ws = sheet.worksheet("MoneyTransfers")
-                    existing_headers = money_ws.row_values(1)  # 获取第一行表头
-                    if existing_headers != money_df.columns.tolist():
-                       money_ws.update_row(1, money_df.columns.tolist())  # 更新表头
-                except gspread.exceptions.WorksheetNotFound:
-                     money_ws = sheet.add_worksheet(
-                     title="MoneyTransfers",
-                     rows="1000",
-                     cols=len(money_df.columns)  # 动态列数
-                     )
-                     money_ws.append_row(money_df.columns.tolist())  # 添加表头
-                except Exception as e:
-                    st.warning(f"获取MoneyTransfers工作表失败: {str(e)}")
-                    return  # 跳过同步，避免崩溃
-                # Clear existing data (keep header)
-                existing_rows = money_ws.get_all_values()
-                if len(existing_rows) > 1:
-                # 从第2行删除到最后一行（更可靠的写法）
-                   money_ws.delete_rows(2, len(existing_rows))
-                money_data = money_df.values.tolist() 
-                if money_data:  # 确保有数据再同步
-                   money_ws.append_rows(money_data) 
-                st.success("Money transfers synced to Google Sheets")
+                    # Get or create "MoneyTransfers" worksheet
+                    try:
+                        money_ws = sheet.worksheet("MoneyTransfers")
+                    except:
+                        money_ws = sheet.add_worksheet(title="MoneyTransfers", rows="1000", cols="4")
+                        money_ws.append_row(["Amount", "Description", "Date", "Handled By"])
+                    
+                    # Clear existing data (keep header)
+                    if len(money_ws.get_all_values()) > 1:
+                        money_ws.delete_rows(2, len(money_ws.get_all_values()))
+                    
+                    # Convert DataFrame to list of rows
+                    money_data = [st.session_state.money_data.columns.tolist()] + \
+                                st.session_state.money_data.values.tolist()
+                    money_ws.update(money_data)
+                    st.success("Money transfers synced to Google Sheets")
             except Exception as e:
                 st.warning(f"Money transfers sync failed: {str(e)}")
 
@@ -3789,7 +3708,7 @@ def render_main_app():
                 new_transaction = pd.DataFrame({
                     'Amount': [amount],
                     'Description': [description],
-                    'Date': [transaction_date.strftime("%Y-%m-%d %H:%M:%S")],
+                    'Date': [transaction_date.strftime("%Y-%m-%d")],
                     'Handled By': [handled_by]
                 })
                 
@@ -3797,41 +3716,22 @@ def render_main_app():
                 st.session_state.money_data = pd.concat(
                     [st.session_state.money_data, new_transaction], ignore_index=True
                 )
-               
-           
-                success, msg = save_data(sheet)
-                if not success:
-                    st.success(f"Failed to save transaction: {msg}")
-                    st.stop()   
-                st.session_state.need_sync = True
-                st.rerun() 
-            if hasattr(st.session_state, 'need_sync') and st.session_state.need_sync:
-                del st.session_state.need_sync
-                try:
-                   sheet = None
-                   sheet = connect_gsheets()
-                   if sheet:  # 只有连接成功时才传递 sheet
-                       success, msg = save_data(sheet)
-                       if success:
-                           st.success("Transaction recorded and synced to Google Sheets!")
-                       else:
-                           st.error(f"Transaction saved locally but sync failed: {msg}")
-                   else:  # 连接失败时，不传递 sheet（使用本地保存）
-                       success, msg = save_data()  # 注意：这里不传入 sheet 参数
-                       st.warning("Transaction saved locally (Google Sheets connection failed)")
-                except Exception as e:
-        # 捕获所有异常，避免因 sheet 问题导致崩溃
-                   st.error(f"Sync error: {str(e)}")
-        # 确保数据至少保存在本地
-                   success, msg = save_data()
-                   if success:
-                       st.info("Transaction saved locally despite sync error")success, msg = save_data()  # Save without Sheets
-                    
+                
+                # Sync to Google Sheets immediately after saving
+                sheet = connect_gsheets()  # Ensure this function properly authenticates and returns the sheet
+                if sheet:
+                    success, msg = save_data(sheet)
+                    if success:
+                        st.success("Transaction recorded and synced to Google Sheets!")
                     else:
                         st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
-                    st.warning("Transaction saved locally (Google Sheets connection failed)")
-                    
+                    # Fallback: save locally if Sheets connection fails
+                    success, msg = save_data()  # Save without Sheets
+                    if success:
+                        st.warning("Transaction saved locally (Google Sheets connection failed)")
+                    else:
+                        st.error(f"Failed to save transaction: {msg}")
             
             # Export financial report
             if not st.session_state.money_data.empty and st.button("Export Financial Report"):
@@ -3919,31 +3819,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
