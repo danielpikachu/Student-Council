@@ -3789,7 +3789,7 @@ def render_main_app():
                 new_transaction = pd.DataFrame({
                     'Amount': [amount],
                     'Description': [description],
-                    'Date': [pd.to_datetime(transaction_date)],
+                    'Date': [transaction_date.strftime("%Y-%m-%d %H:%M:%S")],
                     'Handled By': [handled_by]
                 })
                 
@@ -3904,6 +3904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
