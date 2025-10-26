@@ -1392,28 +1392,35 @@ def save_data(sheet=None):
             # 3. Money Transfers Sync
             try:
                 if "money_data" in st.session_state and not st.session_state.money_data.empty:
-                    # Get or create "MoneyTransfers" worksheet
-                    try:
-                        money_ws = sheet.worksheet("MoneyTransfers")
-                    except:
-                        money_ws = sheet.add_worksheet(title="MoneyTransfers", rows="1000", cols="4")
-                        money_ws.append_row(["Amount", "Description", "Date", "Handled By"])
-                    
-                    # Clear existing data (keep header)
-                    if len(money_ws.get_all_values()) > 1:
-                        money_ws.delete_rows(2, len(money_ws.get_all_values()))
-                    
-                    # Convert DataFrame to list of rows
-                    money_data = [st.session_state.money_data.columns.tolist()] + \
-                                st.session_state.money_data.values.tolist()
-                    money_ws.update(money_data)
-                    st.success("Money transfers synced to Google Sheets")
+                # 复制数据以避免修改原始数据
+                    money_df = st.session_state.money_data.copy()
+        
+                # 将所有Timestamp类型转换为ISO格式字符串
+                for col in money_df.columns:
+                    if pd.api.types.is_datetime64_any_dtype(money_df[col]):
+                        money_df[col] = money_df[col].dt.isoformat()
+        
+                # Get or create "MoneyTransfers" worksheet
+                try:
+                    money_ws = sheet.worksheet("MoneyTransfers")
+                except:
+                    money_ws = sheet.add_worksheet(title="MoneyTransfers", rows="1000", cols="4")
+                    money_ws.append_row(["Amount", "Description", "Date", "Handled By"])
+        
+                # Clear existing data (keep header)
+                if len(money_ws.get_all_values()) > 1:
+                    money_ws.delete_rows(2, len(money_ws.get_all_values()))
+        
+                # Convert DataFrame to list of rows (使用处理后的DataFrame)
+                money_data = [money_df.columns.tolist()] + money_df.values.tolist()
+                money_ws.update(money_data)
+                st.success("Money transfers synced to Google Sheets")
             except Exception as e:
                 st.warning(f"Money transfers sync failed: {str(e)}")
 
-        return True, "Data saved successfully (local + Google Sheets)"
-    except Exception as e:
-        return False, f"Error saving data: {str(e)}"
+     return True, "Data saved successfully (local + Google Sheets)"
+     except Exception as e:
+     return False, f"Error saving data: {str(e)}"
 
 def sync_user_to_sheets(sheet, username):
     """Sync a single user to Google Sheets 'Users' worksheet"""
@@ -3867,6 +3874,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
