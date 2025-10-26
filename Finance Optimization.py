@@ -1399,6 +1399,13 @@ def save_data(sheet=None):
                 for col in money_df.columns:
                     if pd.api.types.is_datetime64_any_dtype(money_df[col]):
                         money_df[col] = money_df[col].dt.isoformat()
+                for col in money_df.columns:
+                    if pd.api.types.is_numeric_dtype(money_df[col]):
+                        # 数值列（如Amount）的NaN替换为0
+                        money_df[col] = money_df[col].fillna(0)
+                    else:
+                        # 字符串列（如Description）的NaN替换为空字符串
+                        money_df[col] = money_df[col].fillna("")
         
                 # Get or create "MoneyTransfers" worksheet
                 try:
@@ -3874,6 +3881,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
