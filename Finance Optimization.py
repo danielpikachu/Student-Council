@@ -1261,7 +1261,7 @@ def load_data(sheet):
                 st.session_state.money_data = pd.DataFrame(money_data)
                 # 确保日期列格式正确
                 if "Date" in st.session_state.money_data.columns:
-                    st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"])
+                    st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"],format="%Y-%m-%d")
             except gspread.exceptions.WorksheetNotFound:
                 st.warning("MoneyTransfers worksheet not found, using local data")
             except Exception as e:
@@ -3881,6 +3881,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
