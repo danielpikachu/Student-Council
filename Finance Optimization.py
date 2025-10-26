@@ -1267,7 +1267,7 @@ def load_data(sheet):
                           errors='coerce'  # 无法转换的设为NaT
                        )
                    st.success("资金转账数据从Google Sheets加载成功")
-               else:
+                else:
                    if 'money_data' not in st.session_state: 
                        st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
             except gspread.exceptions.WorksheetNotFound:
@@ -3902,6 +3902,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
