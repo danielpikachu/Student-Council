@@ -3807,11 +3807,26 @@ def render_main_app():
                 st.rerun() 
             if hasattr(st.session_state, 'need_sync') and st.session_state.need_sync:
                 del st.session_state.need_sync
-                sheet = connect_gsheets()
-                if sheet:
-                    success, msg = save_data()  # Save without Sheets
-                    if success:
-                        st.success("Transaction saved locally (Google Sheets connection failed)")
+                try:
+                   sheet = None
+                   sheet = connect_gsheets()if sheet:
+                   if sheet:  # 只有连接成功时才传递 sheet
+                       success, msg = save_data(sheet)
+                       if success:
+                           st.success("Transaction recorded and synced to Google Sheets!")
+                       else:
+                           st.error(f"Transaction saved locally but sync failed: {msg}")
+                   else:  # 连接失败时，不传递 sheet（使用本地保存）
+                       success, msg = save_data()  # 注意：这里不传入 sheet 参数
+                       st.warning("Transaction saved locally (Google Sheets connection failed)")
+                except Exception as e:
+        # 捕获所有异常，避免因 sheet 问题导致崩溃
+                   st.error(f"Sync error: {str(e)}")
+        # 确保数据至少保存在本地
+                   success, msg = save_data()
+                   if success:
+                       st.info("Transaction saved locally despite sync error")success, msg = save_data()  # Save without Sheets
+                    
                     else:
                         st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
@@ -3904,6 +3919,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
