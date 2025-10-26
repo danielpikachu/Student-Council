@@ -1261,11 +1261,11 @@ def load_data(sheet):
                 st.session_state.money_data = pd.DataFrame(money_data)
                 # 确保日期列格式正确
                 if "Date" in st.session_state.money_data.columns:
-                st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"])
-           except gspread.exceptions.WorksheetNotFound:
-               st.warning("MoneyTransfers worksheet not found, using local data")
-           except Exception as e:
-               st.warning(f"Error loading money transfers from Sheets: {str(e)}")
+                    st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"])
+            except gspread.exceptions.WorksheetNotFound:
+                st.warning("MoneyTransfers worksheet not found, using local data")
+            except Exception as e:
+                st.warning(f"Error loading money transfers from Sheets: {str(e)}")
             
             return True, "Data loaded from Google Sheets"
         
@@ -3867,6 +3867,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
