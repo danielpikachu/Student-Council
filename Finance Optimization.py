@@ -1421,8 +1421,8 @@ def save_data(sheet=None):
                      )
                      money_ws.append_row(money_df.columns.tolist())  # 添加表头
                 except Exception as e:
-                st.warning(f"获取MoneyTransfers工作表失败: {str(e)}")
-                continue  # 跳过同步，避免崩溃
+                    st.warning(f"获取MoneyTransfers工作表失败: {str(e)}")
+                    continue  # 跳过同步，避免崩溃
                 # Clear existing data (keep header)
                 existing_rows = money_ws.get_all_values()
                 if len(existing_rows) > 1:
@@ -3893,6 +3893,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
