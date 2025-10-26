@@ -3797,14 +3797,18 @@ def render_main_app():
                 st.session_state.money_data = pd.concat(
                     [st.session_state.money_data, new_transaction], ignore_index=True
                 )
-                
+                st.session_state.temp_success = True  # 用临时状态传递成功信息
+                st.experimental_rerun()
+            if hasattr(st.session_state, 'temp_success') and st.session_state.temp_success:
+           # 清除临时状态，避免重复显示
+               del st.session_state.temp_success
                 # Sync to Google Sheets immediately after saving
                 sheet = connect_gsheets()  # Ensure this function properly authenticates and returns the sheet
                 if sheet:
                     success, msg = save_data(sheet)
                     if success:
                         st.success("Transaction recorded and synced to Google Sheets!")
-                        st.experimental_rerun()
+                        
                     else:
                         st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
@@ -3812,7 +3816,7 @@ def render_main_app():
                     success, msg = save_data()  # Save without Sheets
                     if success:
                         st.warning("Transaction saved locally (Google Sheets connection failed)")
-                        st.experimental_rerun()
+                       
                     else:
                         st.error(f"Failed to save transaction: {msg}")
             
@@ -3902,6 +3906,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
