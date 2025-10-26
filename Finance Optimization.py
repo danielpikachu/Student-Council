@@ -3809,7 +3809,7 @@ def render_main_app():
                 del st.session_state.need_sync
                 try:
                    sheet = None
-                   sheet = connect_gsheets()if sheet:
+                   sheet = connect_gsheets()
                    if sheet:  # 只有连接成功时才传递 sheet
                        success, msg = save_data(sheet)
                        if success:
@@ -3919,6 +3919,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
