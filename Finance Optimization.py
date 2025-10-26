@@ -1419,7 +1419,7 @@ def save_data(sheet=None):
                 st.warning(f"Money transfers sync failed: {str(e)}")
 
                 return True, "Data saved successfully (local + Google Sheets)"
-                except Exception as e:
+            except Exception as e:
                 return False, f"Error saving data: {str(e)}"
 
 def sync_user_to_sheets(sheet, username):
@@ -3874,6 +3874,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
