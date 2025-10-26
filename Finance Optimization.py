@@ -3797,28 +3797,26 @@ def render_main_app():
                 st.session_state.money_data = pd.concat(
                     [st.session_state.money_data, new_transaction], ignore_index=True
                 )
-                st.session_state.temp_success = True  # 用临时状态传递成功信息
-                st.experimental_rerun()
-            if hasattr(st.session_state, 'temp_success') and st.session_state.temp_success:
-           # 清除临时状态，避免重复显示
-                del st.session_state.temp_success
-                # Sync to Google Sheets immediately after saving
-                sheet = connect_gsheets()  # Ensure this function properly authenticates and returns the sheet
+               
+           
+                success, msg = save_data(sheet)
+                if not success:
+                    st.success(f"Failed to save transaction: {msg}")
+                    st.stop()   
+                st.session_state.need_sync = True
+                st.rerun() 
+            if hasattr(st.session_state, 'need_sync') and st.session_state.need_sync:
+                del st.session_state.need_sync
+                sheet = connect_gsheets()
                 if sheet:
-                    success, msg = save_data(sheet)
+                    success, msg = save_data()  # Save without Sheets
                     if success:
-                        st.success("Transaction recorded and synced to Google Sheets!")
-                        
+                        st.success("Transaction saved locally (Google Sheets connection failed)")
                     else:
                         st.error(f"Transaction saved locally but sync failed: {msg}")
                 else:
-                    # Fallback: save locally if Sheets connection fails
-                    success, msg = save_data()  # Save without Sheets
-                    if success:
-                        st.warning("Transaction saved locally (Google Sheets connection failed)")
-                       
-                    else:
-                        st.error(f"Failed to save transaction: {msg}")
+                    st.warning("Transaction saved locally (Google Sheets connection failed)")
+                    
             
             # Export financial report
             if not st.session_state.money_data.empty and st.button("Export Financial Report"):
@@ -3906,6 +3904,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
