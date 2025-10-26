@@ -1220,7 +1220,7 @@ def load_data(sheet):
             st.session_state.credit_data = pd.DataFrame(credit_data)
 
             #Load Calendar data
-             try:
+            try:
                 calendar_sheet = sheet.worksheet("Calendar")
                 calendar_data = calendar_sheet.get_all_records()  # 读取所有日历记录
                 # 转换为session_state.calendar_events需要的格式：{日期: 事件描述}
@@ -3867,5 +3867,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
