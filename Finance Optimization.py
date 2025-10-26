@@ -1257,15 +1257,24 @@ def load_data(sheet):
             try:
                 money_sheet = sheet.worksheet("MoneyTransfers")
                 money_data = money_sheet.get_all_records()
-                # 转换为DataFrame（与本地存储格式一致）
-                st.session_state.money_data = pd.DataFrame(money_data)
-                # 确保日期列格式正确
-                if "Date" in st.session_state.money_data.columns:
-                    st.session_state.money_data["Date"] = pd.to_datetime(st.session_state.money_data["Date"],format="%Y-%m-%d")
+                if money_data:
+                   st.session_state.money_data = pd.DataFrame(money_data)
+                # 强制日期列格式为datetime
+                   if "Date" in st.session_state.money_data.columns:
+                    # 处理ISO格式字符串转换
+                       st.session_state.money_data["Date"] = pd.to_datetime(
+                          st.session_state.money_data["Date"],
+                          errors='coerce'  # 无法转换的设为NaT
+                       )
+                   st.success("资金转账数据从Google Sheets加载成功")
+               else:
+                   if 'money_data' not in st.session_state: 
+                       st.session_state.money_data = pd.DataFrame(columns=['Amount', 'Description', 'Date', 'Handled By'])
             except gspread.exceptions.WorksheetNotFound:
-                st.warning("MoneyTransfers worksheet not found, using local data")
+              st.warning("MoneyTransfers工作表不存在，使用本地数据")
             except Exception as e:
-                st.warning(f"Error loading money transfers from Sheets: {str(e)}")
+              st.warning(f"从Sheets加载资金转账数据失败: {str(e)}")
+                
             
             return True, "Data loaded from Google Sheets"
         
@@ -3893,6 +3902,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
